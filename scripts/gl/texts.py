@@ -541,6 +541,7 @@ CLI_USAGE = """Use one of:
   learning.py log <kind> key=value ... [phase=N]
   learning.py record-tests <suite> <file> [phase=N]
   learning.py hand-over [N]
+  learning.py setup <settings.json> [--claude-md]
   learning.py version"""
 
 
@@ -722,3 +723,60 @@ def score_process(surprised, differently):
 
 def last_phase(value):
     return "(last phase: %s)" % value
+
+
+# --- setup ----------------------------------------------------------------------------------------
+
+SETUP_GIVEN = "The settings"
+SETUP_SETTINGS_BY_HAND = ("This game was set up before, so its own settings count. To change one, the owner edits "
+                          ".claude/learning/project.json by hand.")
+SETUP_SECTION_ADDED = "Added to CLAUDE.md: the section of guided learning."
+SETUP_SECTION_THERE = "CLAUDE.md has the section of guided learning already and was not changed."
+_SETUP_KEYS = {
+    "docs": "a folder of the game for the phase files, like \"Docs/learning\"",
+    "code": "a list of code folders of the game, like [\"src\"]",
+    "extensions": "a list of file extensions of the code, like [\".cs\"]",
+    "ownerMark": "the text in the code that marks an owner test, on one line",
+    "suites": "a list of names of test suites, like [\"Unit\"]",
+    "background": "a text about the owner's experience",
+}
+
+
+def setup_key(key, given):
+    return "\"%s\" is %s. It must be %s." % (key, "wrong" if given else "missing", _SETUP_KEYS[key])
+
+
+def setup_unknown(key):
+    return "\"%s\" is no setting." % key
+
+
+def setup_refused(name):
+    return "%s cannot be used. Nothing was written." % name
+
+
+def setup_not_a_folder(docs):
+    return "\"docs\": %s cannot be a folder, because a file is in the way. Nothing was written." % docs
+
+
+def setup_no_file(path):
+    return "There is no settings file %s." % path
+
+
+def setup_elsewhere(root):
+    return "This folder is inside the game at %s, which is set up already. Run setup there." % root
+
+
+def setup_written(name):
+    return "Written: %s" % name
+
+
+def setup_kept(name):
+    return "%s is there already and was not changed." % name
+
+
+def setup_lines_added(name, lines):
+    return "Added to %s: %s" % (name, ", ".join(lines))
+
+
+def setup_no_folder(folder):
+    return "The code folder %s does not exist yet. Check that its name is right." % folder

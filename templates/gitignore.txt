@@ -1,0 +1,4 @@
+.claude/learning/config.json
+.claude/learning/local/
+.claude/learning/rehearsal/
+.claude/learning/rehearsal-reports/

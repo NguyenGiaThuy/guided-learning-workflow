@@ -198,10 +198,16 @@ class CliTests(Base):
             self.assertIn("/start-phase 1", out)
 
     def test_no_project(self):
-        for args in (("status",), ("log", "note", "text=x"), ("hand-over",), ("record-tests", "Unit", "x")):
+        for args in (("log", "note", "text=x"), ("hand-over",), ("record-tests", "Unit", "x")):
             code, out = self.cli(*args)
             self.assertEqual(code, 1)
             self.assertIn("/setup-learning", out)
+        self.assertEqual(list(self.tmp.iterdir()), [])
+
+    def test_status_without_a_project_is_no_error(self):
+        for args in (("status",), ("status", "2"), ("status", "")):   # an error would keep the skill from loading
+            code, out = self.cli(*args)
+            self.assertEqual((code, out), (0, texts.NO_PROJECT + "\n"), args)
         self.assertEqual(list(self.tmp.iterdir()), [])
 
     def test_version_works_without_a_project(self):

@@ -7,7 +7,9 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", newline="\n")
 
-from gl import commands, hooks, log, project, results, store, texts, version  # noqa: E402
+from gl import commands, hooks, log, project, results, setup, store, texts, version  # noqa: E402
+
+SETUP_FLAG = "--claude-md"
 
 
 class Refused(Exception):
@@ -42,6 +44,8 @@ def _fields(args):
 
 
 def _status(args):
+    if project.find(os.getcwd()) is None:   # no error: a failed `!` command keeps the AI from seeing the text
+        return True, texts.NO_PROJECT
     target = _project()
     argument = " ".join(args)
     out = commands.run(target, "summarize", argument)
@@ -76,12 +80,26 @@ def _hand_over(args):
     return out.ok, out.text
 
 
+def _setup(args):
+    paths = [a for a in args if a != SETUP_FLAG]
+    if len(paths) != 1 or paths[0].startswith("--"):
+        raise Refused(texts.CLI_USAGE)
+    if not os.path.isfile(paths[0]):
+        raise Refused(texts.setup_no_file(paths[0]))
+    root = os.getcwd()
+    found = project.find(root)
+    if found and project.norm(found.root) != project.norm(root):
+        raise Refused(texts.setup_elsewhere(found.root))
+    done = setup.apply(root, store.read(paths[0]), claudeMd=SETUP_FLAG in args)
+    return True, "\n".join(done + [commands.suggestion(_project())])
+
+
 def _version(args):
     return True, "%s %s" % (version.VERSION, version.plugin_hash())
 
 
 SUBCOMMANDS = {"status": _status, "log": _log, "record-tests": _record_tests, "hand-over": _hand_over,
-               "version": _version}
+               "setup": _setup, "version": _version}
 
 
 def _hook(event):
@@ -104,7 +122,8 @@ def main(argv):
         if command is None:
             raise Refused(texts.CLI_USAGE)
         ok, text = command(argv[1:])
-    except (Refused, log.LogError, results.ResultError, store.BadJson, store.LockTimeout, OSError) as e:
+    except (Refused, log.LogError, results.ResultError, setup.SetupError, store.BadJson, store.LockTimeout,
+            OSError) as e:
         ok, text = False, str(e)
     except Exception as e:   # the owner sees a message, never a traceback
         ok, text = False, texts.unexpected_error(e)

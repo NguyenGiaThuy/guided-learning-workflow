@@ -53,7 +53,7 @@ def latest(project):
     return max(project.phase_numbers(), default=None)
 
 
-def _suggestion(project):
+def suggestion(project):
     """The next line that fits the project as a whole."""
     n = latest(project)
     return texts.next_line("start-phase", 1) if n is None else render.next_line(state.compute(project, n))
@@ -447,7 +447,7 @@ def _run(project, name, argument):
         if n is None:
             raise _refuse([texts.NO_PHASE_YET], texts.next_line("start-phase", 1))
     if n is None or n < 1:
-        raise _refuse([texts.bad_number(argument.strip(), name)], _suggestion(project))
+        raise _refuse([texts.bad_number(argument.strip(), name)], suggestion(project))
     return _COMMANDS[name](project, n, rest)
 
 
