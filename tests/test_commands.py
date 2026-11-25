@@ -1418,6 +1418,25 @@ class DoneElsewhereTests(GitBase):
         self.git("merge", "-q", "--ff-only", "stage-2")   # brings both
         self.accepted("start", "3")
 
+    def test_the_text_names_the_first_phase_that_is_not_done_here(self):
+        self.finish()
+        for here, following in (("done", 3), ("skipped", 3), ("planning", 2), ("build", 2)):
+            helpers.make_project(self.project.root, {2: {"state": {"status": here}, "plan": full_plan(2)}})
+            for out in (commands.run(self.project, "start", "3"), commands.run(self.project, "summarize", "1")):
+                self.assertIn("/start-phase %d. " % following, out.text.splitlines()[-2], here)
+                self.assertEqual(out.text.splitlines()[-1], self.merge_line(following - 1), here)
+        helpers.make_project(self.project.root, {2: {"state": {"status": "done"}}, 3: {"state": {"status": "done"}}})
+        self.assertIn("/start-phase 4. ", self.refused("start", "4"))
+
+    def test_a_skip_drops_an_open_record_that_was_left(self):
+        for status in ("done", "skipped"):
+            self.make({1: {"state": {"status": status, "branch": "stage-1"}, "plan": full_plan(1)}})
+            left = {"branch": "stage-1", "locked": ["src/Moth.cs"], "built": True}
+            helpers.write_json(self.local, {"1": left, "7": left})
+            self.accepted("start", "2 skip: x")
+            self.assertEqual(store.read(self.local), {"7": left}, status)
+            shutil.rmtree(self.project.root / "Docs")
+
     def test_the_next_phase_is_open_on_its_branch(self):
         self.finish(back=None)
         self.git("switch", "-q", "-c", "stage-2")

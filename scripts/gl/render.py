@@ -63,7 +63,7 @@ def next_command(st):
 
 def next_line(st):
     if st.unmerged:
-        return texts.next_in_new_chat("start-phase", st.n + 1, texts.MERGE_FIRST)
+        return texts.next_in_new_chat("start-phase", st.following, texts.MERGE_FIRST)
     return texts.next_line(*next_command(st))
 
 
@@ -86,7 +86,7 @@ def status(st):
                  texts.next_line("summarize-phase", n)]
         return "\n".join(lines) + "\n"
     if st.unmerged:
-        lines = [texts.phase_header(n, "done"), texts.done_not_merged(n, st.unmerged)]
+        lines = [texts.phase_header(n, "done"), texts.done_not_merged(n, st.unmerged, st.following)]
     elif st.status == "planning":
         lines = [texts.phase_header(n, "planning"), texts.planning_text(n)]
     elif st.status == "done":

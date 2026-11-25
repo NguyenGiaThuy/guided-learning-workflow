@@ -79,6 +79,7 @@ class PhaseState:
         self.problems = []            # lost TODOs and missing files: shown even while building
         self.wrong_branch = None
         self.unmerged = None          # the branch of a phase that is done there, and not merged here
+        self.following = None         # then: the first phase after it that is not done or skipped here
         self.lost_todos = []          # "S.T" of planned TODOs that were never in their file
         self.project = None           # the project it was worked out for
 
@@ -463,7 +464,9 @@ def compute(project, n):
     st.project = project
     st.unmerged = done_elsewhere(project, n)
     if st.unmerged:   # the files here tell nothing
-        st.status, st.branch = "done", st.unmerged
+        st.status, st.branch, st.following = "done", st.unmerged, n + 1
+        while store.read(project.state_path(st.following)).get("status") in ("done", "skipped"):
+            st.following += 1
         return st
     data = store.read(project.state_path(n))
     plan = store.read(project.plan_path(n))

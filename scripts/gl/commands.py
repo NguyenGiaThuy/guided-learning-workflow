@@ -91,7 +91,8 @@ def _refuse_elsewhere(project, name, n):
     for number in sorted(project.done_phases(), reverse=True):   # the latest branch may hold the ones before
         branch = state.done_elsewhere(project, number) if concerned(number) else None
         if branch:
-            raise _refuse([texts.done_not_merged(number, branch)], render.next_line(state.compute(project, number)))
+            st = state.compute(project, number)
+            raise _refuse([texts.done_not_merged(number, branch, st.following)], render.next_line(st))
 
 
 def _no_rest(name, n, rest):
@@ -127,8 +128,8 @@ def _mark_skipped(project, prev, reason, items):
             data.update(status="skipped", skip=reason)
 
     data = project.update_state(prev, apply)
-    if data.get("status") == "skipped":   # the record of a done one stays as it is
-        project.note_open(prev, data)
+    if data.get("status") == "skipped" or prev in project.open_phases():
+        project.note_open(prev, {})   # the record that a phase is done and not merged stays
 
 
 def _add(items, more):
