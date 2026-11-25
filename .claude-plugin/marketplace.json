@@ -1,5 +1,6 @@
 {
   "name": "guided-learning-workflow",
+  "description": "Guided learning for people who build games with Claude Code.",
   "owner": {
     "name": "guided-learning-workflow contributors"
   },

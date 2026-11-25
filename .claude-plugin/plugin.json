@@ -1,5 +1,9 @@
 {
   "name": "guided-learning",
   "version": "0.1.0",
-  "description": "A guided learning workflow for making games: learn by building, one step at a time."
+  "description": "Learn how games are made by building one with an AI: it does the surrounding work, you write the key scripts, and every phase ends with what you learned.",
+  "author": {
+    "name": "guided-learning-workflow contributors"
+  },
+  "license": "MIT"
 }
