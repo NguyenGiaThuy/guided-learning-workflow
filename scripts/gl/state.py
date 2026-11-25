@@ -294,8 +294,19 @@ def targets_met(plan, log):
     return met, open_
 
 
-def suite_items(project, data, leave_out=()):
-    """What is wrong with the recorded suites, without the failures of the tests in leave_out."""
+def _not_run(project, data, suite, leave_out):
+    """Tests the suite has had, which are still in the code and have no fresh result in any suite.
+    A test that moved to another namespace or suite, or has other cases, counts as run."""
+    run = {scan.class_and_method(k) for s in project.settings.get("suites", []) if results.fresh(project, data, s)
+           for k in data["results"][s].get("tests") or {}}
+    missing = [k for k in results.known(data["results"][suite]) if scan.class_and_method(k) not in run
+               and not any(results.matches(t, k) for t in leave_out)]
+    return scan.tests_in_code(project, missing)
+
+
+def suite_items(project, data, leave_out=(), covered=()):
+    """What is wrong with the recorded suites, without the failures of the tests in leave_out.
+    A test in leave_out or covered need not have been run."""
     items = []
     for suite in project.settings.get("suites", []):
         entry = (data.get("results") or {}).get(suite)
@@ -308,6 +319,9 @@ def suite_items(project, data, leave_out=()):
                             and not any(results.matches(t, k) for t in leave_out))
             if failed:
                 items.append(texts.suite_failing(suite, failed))
+            not_run = _not_run(project, data, suite, list(leave_out) + list(covered))
+            if not_run:
+                items.append(texts.suite_not_run(suite, not_run))
     return items
 
 
@@ -464,7 +478,7 @@ def _build(project, st, data, plan):
     st.open_items += _stray_todos(project, st.n, plan_scripts)
     planned_tests = [str(t) for s in plan_scripts for t in s.get("tests", [])]
     st.open_items += [texts.owner_mark_left(p) for p in scan.owner_marks(project, planned_tests)]
-    st.open_items += suite_items(project, data)
+    st.open_items += suite_items(project, data, covered=planned_tests)   # each script names its own tests
     st.open_items += [texts.target_open(t) for t in st.targets_open]
     st.wrap_items = _wrap_items(project, st.n, plan, data)
     st.open_items += st.wrap_items

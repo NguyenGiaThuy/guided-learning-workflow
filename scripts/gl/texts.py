@@ -35,12 +35,15 @@ def result_bad_line(file, line):
     return "%s line %d is not of the form name,pass or name,fail." % (file, line)
 
 
+_SMOKE_TEST = "A suite needs at least one test that runs. If it has none, add a smoke test."
+
+
 def result_empty(file):
-    return "%s holds no test results." % file
+    return "%s holds no test results. %s" % (file, _SMOKE_TEST)
 
 
 def result_nothing_run(file):
-    return "Nothing was run: every test in %s was skipped." % file
+    return "Nothing was run: every test in %s was skipped. %s" % (file, _SMOKE_TEST)
 
 
 def result_unknown_suite(suite, known):
@@ -209,6 +212,12 @@ def suite_old(suite):
 
 def suite_failing(suite, names):
     return "Suite %s has failing tests: %s." % (suite, ", ".join(names))
+
+
+def suite_not_run(suite, names):
+    shown = ", ".join(names[:5]) + (" and %d more" % (len(names) - 5) if len(names) > 5 else "")
+    return "Suite %s: %d test%s not run since the last code change: %s." % (
+        suite, len(names), "" if len(names) == 1 else "s", shown)
 
 
 def target_open(target):

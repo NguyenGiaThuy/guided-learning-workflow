@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from helpers import make_project
-from gl import project, results, store
+from gl import project, results, state, store, texts
 
 DATA = Path(__file__).resolve().parent / "data"
 _FULL = {"LanternKeeper.MothTests.Turns": "passed", "LanternKeeper.MothTests.FliesToLight": "passed",
@@ -111,8 +111,9 @@ class RecordTests(unittest.TestCase):
         e = self.result_file("e.csv", "\n\n", 2000)
         s = self.result_file("s.xml", '<testsuite><testcase name="A"><skipped/></testcase></testsuite>', 2000)
         for p in (e, s):
-            with self.assertRaises(results.ResultError):
+            with self.assertRaises(results.ResultError) as c:
                 results.record(self.proj, 2, "Unit", p)
+            self.assertIn("smoke test", str(c.exception))
         self.assertNotIn("results", self.state())
 
     def test_fresh_results_are_merged(self):
@@ -133,6 +134,70 @@ class RecordTests(unittest.TestCase):
         r = self.state()["results"]["Unit"]
         self.assertEqual(r["tests"], {"C": "passed"})
         self.assertEqual(r["time"], 6000)
+
+    def test_the_names_a_suite_has_had_are_kept(self):
+        a = self.result_file("a.csv", "Game.A.x(1),pass\nGame.A.x(2),fail\nB.y,pass\n", 3000)
+        results.record(self.proj, 2, "Unit", a)
+        self.assertEqual(self.state()["results"]["Unit"]["known"], ["B.y", "Game.A.x"])
+        os.utime(self.code, (5000, 5000))
+        results.record(self.proj, 2, "Unit", self.result_file("b.csv", "C.z,pass\n", 6000))
+        r = self.state()["results"]["Unit"]
+        self.assertEqual((r["tests"], r["known"]), ({"C.z": "passed"}, ["B.y", "C.z", "Game.A.x"]))
+        results.record(self.proj, 2, "Unit", self.result_file("c.csv", "D.w,pass\n", 7000))
+        self.assertEqual(self.state()["results"]["Unit"]["known"], ["B.y", "C.z", "D.w", "Game.A.x"])
+
+    def test_the_names_of_results_from_before_are_kept(self):
+        for odd in ({}, {"known": 5}, {"known": [5, None]}):
+            entry = dict({"time": 1, "tests": {"A.x": "passed"}}, **odd)
+            self.proj.update_state(2, lambda d: {"status": "build", "results": {"Unit": entry}})
+            results.record(self.proj, 2, "Unit", self.result_file("b.csv", "B.y,pass\n", 6000))
+            self.assertEqual(self.state()["results"]["Unit"]["known"], ["A.x", "B.y"])
+
+    def items(self, code, *runs, **kw):
+        """The suite items after the code was saved and the runs of one suite were recorded."""
+        for time, text in runs:
+            results.record(self.proj, 2, "Unit", self.result_file("r.csv", text, time))
+        self.code.write_text(code)
+        os.utime(self.code, (kw.pop("saved", 1000),) * 2)
+        return state.suite_items(self.proj, self.state(), **kw)
+
+    ALL = "Game.A.x(1),pass\nA.y,pass\nB.z,pass\n"
+
+    def test_a_filtered_run_after_a_change_is_not_the_whole_suite(self):
+        code = "class A { void x() {} void y() {} } class B { void z() {} }"
+        item = texts.suite_not_run("Unit", ["A.y", "B.z"])
+        self.assertEqual(item, "Suite Unit: 2 tests not run since the last code change: A.y, B.z.")
+        os.utime(self.code, (1000, 1000))
+        results.record(self.proj, 2, "Unit", self.result_file("a.csv", self.ALL, 3000))
+        os.utime(self.code, (5000, 5000))
+        self.assertEqual(self.items(code, (6000, "A.x,pass\n"), saved=5000), [item])
+        self.assertEqual(self.items(code, (6000, "A.x,pass\n"), saved=5000, leave_out=["A.y"]),
+                         [texts.suite_not_run("Unit", ["B.z"])])
+        self.assertEqual(self.items(code, saved=5000, covered=["A.y", "B.z"]), [])
+        self.assertEqual(self.items(code, (6500, "A.y,pass\nB.z,pass\n"), saved=5000), [])
+        self.assertEqual(self.items(code, saved=9000), [texts.suite_old("Unit")])
+
+    def test_names_that_are_gone_from_the_code_do_not_count(self):
+        results.record(self.proj, 2, "Unit", self.result_file("a.csv", self.ALL, 3000))
+        os.utime(self.code, (5000, 5000))
+        self.assertEqual(self.items("class A { void x() {} void yy() {} }", (6000, "A.x,pass\n"), saved=5000), [])
+
+    def test_a_test_that_moved_counts_as_run(self):
+        results.record(self.proj, 2, "Unit", self.result_file("a.csv", self.ALL, 3000))
+        os.utime(self.code, (5000, 5000))
+        code = "class A { void x() {} void y() {} } class B { void z() {} }"
+        moved = "New.A.x(7),pass\nNew.A.y,pass\nB.z,pass\n"   # another case and another namespace
+        self.assertEqual(self.items(code, (6000, moved), saved=5000), [])
+        self.proj.settings["suites"] = ["Unit", "Play"]   # and into another suite
+        results.record(self.proj, 2, "Play", self.result_file("b.csv", "A.y,pass\n", 6000))
+        self.proj.update_state(2, lambda d: d["results"]["Unit"]["tests"].pop("New.A.y") and None)
+        self.assertEqual(state.suite_items(self.proj, self.state()), [])
+
+    def test_many_names_are_cut(self):
+        names = ["A.t%d" % i for i in range(9)]
+        self.assertEqual(texts.suite_not_run("Unit", names), "Suite Unit: 9 tests not run since the last code change: "
+                                                             "A.t0, A.t1, A.t2, A.t3, A.t4 and 4 more.")
+        self.assertIn("1 test not run", texts.suite_not_run("Unit", names[:1]))
 
     def test_result_older_than_code_is_not_fresh(self):
         old = self.result_file("old.csv", "A,pass\n", 500)

@@ -77,14 +77,28 @@ def matches(planned, actual):
     return any(a == planned or a.endswith("." + planned) for a in (actual, cut))
 
 
+def without_case(name):
+    """The name of a test without the "(...)" of its case."""
+    return name.split("(", 1)[0]
+
+
+def known(entry):
+    """Every test name, without cases, that the results of a suite have had in this phase; sorted."""
+    entry = entry if isinstance(entry, dict) else {}
+    kept, tests = entry.get("known"), entry.get("tests")
+    names = {k for k in kept if isinstance(k, str)} if isinstance(kept, list) else set()
+    names |= {without_case(k) for k in tests} if isinstance(tests, dict) else set()
+    return sorted(names - {""})
+
+
 def record(project, n, suite, path, check=None):
     """Store the passed and failed tests of a result file under results[suite] of phase n.
 
     Returns them. check(state) is called inside the update and may raise to refuse it.
     """
-    known = project.settings.get("suites", [])
-    if suite not in known:
-        raise ResultError(texts.result_unknown_suite(suite, known))
+    suites = project.settings.get("suites", [])
+    if suite not in suites:
+        raise ResultError(texts.result_unknown_suite(suite, suites))
     found = parse(path)
     if not found:
         raise ResultError(texts.result_empty(path))
@@ -105,6 +119,7 @@ def record(project, n, suite, path, check=None):
             stored[suite] = {"time": min(old["time"], time), "tests": dict(old["tests"], **tests)}
         else:
             stored[suite] = {"time": time, "tests": tests}
+        stored[suite]["known"] = sorted(set(known(old)) | set(known(stored[suite])))
 
     project.update_state(n, apply)
     return tests

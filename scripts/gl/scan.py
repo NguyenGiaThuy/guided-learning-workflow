@@ -74,10 +74,31 @@ def last_code_change(project):
     return max(times, default=0.0)
 
 
-def has_test(text, test):
-    """True if the code holds the class and the method of a test, each as a whole word."""
-    words = test.split("(", 1)[0].split(".")[-2:]
-    return all(re.search(r"\b%s\b" % re.escape(w), text) for w in words)
+def class_and_method(test):
+    return tuple(test.split("(", 1)[0].split(".")[-2:])
+
+
+def has_test(text, test, words=None):
+    """True if the code holds the class and the method of a test, each as a whole word.
+
+    words: the set of all words of the text, for a caller that asks for many tests.
+    """
+    def holds(word):
+        if words is not None and word.isidentifier():
+            return word in words
+        return re.search(r"\b%s\b" % re.escape(word), text) is not None
+
+    return all(holds(w) for w in class_and_method(test))
+
+
+def tests_in_code(project, tests):
+    """Those of the tests whose class and method are in a code file."""
+    left, found = list(tests), set()
+    for _, text in texts(project) if left else ():
+        words = set(re.findall(r"\w+", text))
+        found.update(t for t in left if has_test(text, t, words))
+        left = [t for t in left if t not in found]
+    return [t for t in tests if t in found]
 
 
 def owner_marks(project, tests):

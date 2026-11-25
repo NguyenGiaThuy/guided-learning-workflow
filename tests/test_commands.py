@@ -582,6 +582,20 @@ class HandOverTests(Base):
                             tests={"MothTests.Turns": "passed", "LampTests.Glows": "passed"})
         self.assertEqual(items, [texts.suite_failing("Unit", ["MothTests.Dies"])])
 
+    def test_tests_that_were_not_run_again(self):
+        known = ["Other.Works", "LaterTests.Runs"] + sorted(self.OWNER)
+        passed = {"MothTests.Turns": "passed", "LampTests.Glows": "passed", "KeeperTests.Walks": "failed"}
+        self.assertEqual(self.misses({"part": 1, "results": {"Unit": dict(suite_result(passed), known=known)}},
+                                     full_plan(parts=TWO_PARTS),
+                                     files={"src/Moth.cs": shell([]), "src/Lamp.cs": shell([]),
+                                            "src/LaterTests.cs": "class LaterTests { void Runs() {} }"}),
+                         [texts.suite_not_run("Unit", ["LaterTests.Runs", "MothTests.Dies"])])
+
+    def test_owner_tests_of_later_parts_need_not_be_run(self):
+        tests = {k: v for k, v in self.OWNER.items() if not k.startswith("Keeper")}
+        self.build({"results": {"Unit": dict(suite_result(tests), known=sorted(self.OWNER))}}, full_plan(parts=TWO_PARTS))
+        self.assertTrue(commands.hand_over(self.project, 2).ok)
+
     def test_owner_tests_of_later_parts_may_fail_or_be_missing(self):
         self.build(plan_=full_plan(parts=TWO_PARTS), without=["src/Keeper.cs", "src/KeeperTests.cs"])
         self.assertTrue(commands.hand_over(self.project, 2).ok)
@@ -750,6 +764,17 @@ class FinishTests(Base):
     def test_suite_failing(self):
         self.alone(texts.suite_failing("Unit", ["Other.Works"]),
                    {"results": {"Unit": suite_result(dict(self.PASSED, **{"Other.Works": "failed"}))}})
+
+    def test_tests_that_were_not_run_again(self):
+        entry = dict(suite_result(self.PASSED), known=["GameTests.Starts"] + sorted(self.PASSED))
+        self.alone(texts.suite_not_run("Unit", ["GameTests.Starts"]), {"results": {"Unit": entry}},
+                   files={"src/GameTests.cs": "class GameTests { void Starts() {} }"})
+        self.assertIn(texts.suite_not_run("Unit", ["GameTests.Starts"]), self.accepted("summarize", "2"))
+
+    def test_an_owner_test_that_was_not_run_again_is_named_once(self):
+        passed = {k: v for k, v in self.PASSED.items() if k != "LampTests.Glows"}
+        entry = dict(suite_result(passed), known=sorted(self.PASSED))
+        self.alone(texts.tests_not_run("Owner 2 Lamp", ["LampTests.Glows"]), {"results": {"Unit": entry}})
 
     def test_target_without_value_or_reason(self):
         self.alone(texts.target_open("wins"), {"log": self.LOG[1:]})

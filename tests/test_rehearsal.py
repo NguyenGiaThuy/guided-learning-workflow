@@ -468,10 +468,11 @@ class SafetyTests(Base):
         """The setting "." is allowed, so the fake code lies below a real code folder."""
         helpers.write_json(self.root / LEARNING / "project.json", dict(helpers.PROJECT_JSON, code=["."]))
         found = self.found()
-        before = (scan.todos_in_code(found), scan.owner_marks(found), scan.last_code_change(found))
+        marked = ["MothTests.Rests"]
+        before = (scan.todos_in_code(found), scan.owner_marks(found, marked), scan.last_code_change(found))
         self.on()
-        self.assertEqual((scan.todos_in_code(found), scan.owner_marks(found), scan.last_code_change(found)), before)
-        self.assertTrue(scan.owner_marks(self.found().active))
+        self.assertEqual((scan.todos_in_code(found), scan.owner_marks(found, marked), scan.last_code_change(found)), before)
+        self.assertTrue(scan.owner_marks(self.found().active, marked))
         store.write(found.state_path(2), {"status": "planning"})
         self.assertIsNone(self.edit(self.fake / "src" / "Other.cs"))
         self.assertIsNotNone(self.edit(self.root / "src" / "Other.cs"))
