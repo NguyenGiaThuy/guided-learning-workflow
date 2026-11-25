@@ -40,7 +40,16 @@ _CHECKS = {"docs": _docs_folder, "code": _list_of(_code_folder), "extensions": _
            "ownerMark": _line, "suites": _list_of(_line), "background": _text}
 
 
+def wrong(settings):
+    """Settings that are missing or cannot be used, as sentences."""
+    return [texts.setup_key(key, key in settings) for key, good in _CHECKS.items() if not good(settings.get(key))]
+
+
+def unknown(settings):
+    """The keys that are no setting. In the project.json of a game they are only named in the status line."""
+    return [key for key in settings if key not in _CHECKS]
+
+
 def problems(settings):
     """Everything that is wrong with the settings, as sentences."""
-    found = [texts.setup_key(key, key in settings) for key, good in _CHECKS.items() if not good(settings.get(key))]
-    return found + [texts.setup_unknown(key) for key in settings if key not in _CHECKS]
+    return wrong(settings) + [texts.setup_unknown(key) for key in unknown(settings)]

@@ -1,4 +1,5 @@
 """All user-visible text of the plugin. Later tasks add their own constants here."""
+import json
 
 
 def bad_json(file, line, detail):
@@ -823,6 +824,10 @@ def setup_key(key, given):
 
 def setup_unknown(key):
     return "\"%s\" is no setting." % key
+
+
+def unknown_setting(key):
+    return "%s in project.json is no setting and has no effect." % json.dumps(key, ensure_ascii=False)
 
 
 def setup_refused(name):

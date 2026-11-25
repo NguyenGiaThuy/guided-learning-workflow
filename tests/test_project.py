@@ -118,10 +118,34 @@ class ProjectTests(unittest.TestCase):
             with self.assertRaises(store.BadJson) as cm:
                 project.find(self.root)
             self.assertIn(texts.setup_key("code", False), str(cm.exception))
-        helpers.write_json(pj, dict(helpers.PROJECT_JSON, codes=["src"]))
-        with self.assertRaises(store.BadJson) as cm:
+
+    def test_an_unknown_key_is_a_warning_in_the_status_line(self):
+        pj = self.root / ".claude" / "learning" / "project.json"
+        helpers.write_json(pj, dict(helpers.PROJECT_JSON, **{"codes": ["src"], "two\nlines \u00fc": 1, "": None}))
+        found = project.find(self.root)
+        self.assertEqual(found.settings["code"], ["src"])
+        line = render.one_line(found)
+        self.assertTrue(line.startswith("Learning hooks: on ("), line)
+        for key in ("codes", "two\nlines \u00fc", ""):
+            self.assertIn(texts.unknown_setting(key), line)
+        self.assertIn('"codes"', line)
+        self.assertNotIn("\n", line)
+        helpers.write_json(pj, helpers.PROJECT_JSON)
+        self.assertNotIn("setting", render.one_line(project.find(self.root)))
+
+    def test_a_misspelled_required_key_is_still_an_error(self):
+        data = {k: v for k, v in helpers.PROJECT_JSON.items() if k != "code"}
+        helpers.write_json(self.root / ".claude" / "learning" / "project.json", dict(data, codes=["src"]))
+        with self.assertRaises(project.BadSettings) as cm:
             project.find(self.root)
-        self.assertIn(texts.setup_unknown("codes"), str(cm.exception))
+        self.assertIn(texts.setup_key("code", False), str(cm.exception))
+        self.assertIn(texts.setup_unknown("codes"), str(cm.exception))   # says what it may be
+
+    def test_an_unknown_key_of_the_rehearsal_is_no_error(self):
+        helpers.set_switch(self.root, '{"rehearsal": true}')
+        reh = self.root / ".claude" / "learning" / "rehearsal"
+        helpers.make_project(reh, settings={"more": 1})
+        self.assertEqual(project.find(self.root).active.settings["code"], ["src"])
 
     def test_wrong_settings_of_the_rehearsal_are_an_error(self):
         helpers.set_switch(self.root, '{"rehearsal": true}')

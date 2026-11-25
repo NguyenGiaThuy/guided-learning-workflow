@@ -5,7 +5,7 @@ from pathlib import Path
 
 from . import state, store, texts, version
 from .project import LEARNING, Project
-from .settings import problems
+from .settings import problems, wrong
 
 PROJECT = (LEARNING / "project.json").as_posix()
 CONFIG = (LEARNING / "config.json").as_posix()
@@ -18,8 +18,8 @@ class SetupError(Exception):
 
 # --- checking the settings -------------------------------------------------------------------
 
-def _check(settings, name):
-    found = problems(settings)
+def _check(found, name):
+    """Refuse settings with these problems."""
     if found:
         raise SetupError("\n".join([texts.setup_refused(name)] + [texts.bullet(p) for p in found]))
 
@@ -84,11 +84,11 @@ def apply(root, settings, claudeMd=False):
     and project.json is written last, so a game is set up only when the rest is there.
     """
     root = Path(root)
-    _check(settings, texts.SETUP_GIVEN)
+    _check(problems(settings), texts.SETUP_GIVEN)
     existing = (root / PROJECT).is_file()
     if existing:
         settings = store.read(root / PROJECT)
-        _check(settings, PROJECT)
+        _check(wrong(settings), PROJECT)   # an unknown key is only named, in the status line
     _check_folder(root, LEARNING.as_posix())
     _check_folder(root, settings["docs"])
     writes, done = [], []

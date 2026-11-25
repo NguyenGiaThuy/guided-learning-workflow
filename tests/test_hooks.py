@@ -997,6 +997,24 @@ class EndToEndTests(Base):
         self.assertIn("project.json", done.stdout.decode("utf-8"))
         self.assertIn(texts.setup_key("code", True), done.stdout.decode("utf-8"))
 
+    def test_an_unknown_setting_blocks_nothing(self):
+        self.make()
+        helpers.write_json(self.root / ".claude" / "learning" / "project.json", dict(helpers.PROJECT_JSON, codes=["src"]))
+        base = {"cwd": str(self.root), "tool_use_id": "toolu_1", "tool_name": "Write",
+                "tool_input": {"file_path": str(self.root / "src" / "New.cs"), "content": "x"}}
+        self.assertEqual(self.hook("PreToolUse", base), "")
+        self.assertEqual(self.hook("PostToolUse", base), "")
+        self.assertEqual(self.hook("Stop", {"cwd": str(self.root)}), "")
+        out = json.loads(self.hook("UserPromptSubmit", {"cwd": str(self.root), "prompt": "/summarize-phase 2"}))
+        self.assertNotIn("decision", out)
+        self.assertIn(texts.unknown_setting("codes"),
+                      json.loads(self.hook("SessionStart", {"cwd": str(self.root)}))["systemMessage"])
+        locked = dict(base, tool_input={"file_path": str(self.root / "src" / "Moth.cs"), "content": "x"})
+        self.denied(json.loads(self.hook("PreToolUse", locked)), "locked")   # still guarded
+        done = subprocess.run([sys.executable, str(ROOT / "scripts" / "learning.py"), "status", "2"], cwd=str(self.root),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
+        self.assertEqual((done.returncode, done.stderr), (0, b""))
+
     def test_edit_shell_and_prompt(self):
         self.make()
         base = {"cwd": str(self.root), "tool_use_id": "toolu_1", "tool_name": "Edit",

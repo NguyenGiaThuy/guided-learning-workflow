@@ -53,9 +53,8 @@ def _read_switch(root):
 
 def _read_settings(path):
     data = store.read(path)
-    problems = checks.problems(data)
-    if problems:
-        raise BadSettings(path, problems)
+    if checks.wrong(data):
+        raise BadSettings(path, checks.problems(data))   # an unknown key may be the misspelled one
     return data
 
 

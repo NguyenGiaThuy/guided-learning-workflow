@@ -1,5 +1,5 @@
 """Turn a PhaseState into the text the owner reads."""
-from . import markdown, scorecard, store, texts, version
+from . import markdown, scorecard, settings, store, texts, version
 
 
 def _rows(st):
@@ -123,6 +123,7 @@ def run_number(project):
 def one_line(project):
     """The status line for SessionStart. `project` is the outer (real) project."""
     problems = ([project.problem] if project.problem else [])
+    problems += [texts.unknown_setting(key) for key in settings.unknown(project.settings)]
     problems += [texts.setup_no_folder(d) for d in project.missing_code_dirs]
     return texts.hooks_line(version.VERSION, version.plugin_hash(), project.rehearsal,
                             run_number(project) if project.rehearsal else None, " ".join(problems))

@@ -213,6 +213,13 @@ class ValidationTests(Base):
     def test_unknown_key_is_refused(self):
         self.assertIn('"ownermark"', self.refused(dict(PROJECT_JSON, ownermark="x")))
 
+    def test_an_unknown_key_of_the_game_is_kept(self):
+        self.put(".claude/learning/project.json", json.dumps(dict(PROJECT_JSON, more=1)).encode("utf-8"))
+        before = self.files()[".claude/learning/project.json"]
+        self.assertIn(texts.setup_kept(".claude/learning/project.json"), self.apply())
+        self.assertEqual(self.files()[".claude/learning/project.json"], before)
+        self.assertIn('"more"', self.refused(dict(PROJECT_JSON, more=1)))   # but not in what is given
+
     def test_good_values(self):
         for changed in ({"code": ["."]}, {"code": ["Assets/Scripts", "Tests/"]},
                         {"extensions": [".cs", ".blade.php", ".h++"]},
