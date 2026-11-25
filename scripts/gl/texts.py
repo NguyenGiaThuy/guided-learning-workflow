@@ -817,8 +817,9 @@ def rehearsal_short(run):
 def rehearsal_rules(run, script):
     return ("REHEARSAL run %s. The project is the folder .claude/learning/rehearsal: every path below is inside it, "
             "also the settings in .claude/learning/project.json. Branch, merge and test results are simulated, with: "
-            "bash \"%s\" rehearse pass | fail | merge | branch [name]. The AI runs that when the owner says so, "
-            "and \"rehearse check <id>\" too. Run no tests, use no git, and leave the real game alone." % (run, script))
+            "bash \"%s\" rehearse pass | fail | merge | branch [name]. The AI runs that, and \"rehearse "
+            "check <id>\", only when the owner says so. Run no tests, use no git, and leave the real game alone."
+            % (run, script))
 
 
 def rehearsal_not_usable(path):

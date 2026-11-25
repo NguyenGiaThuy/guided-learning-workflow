@@ -14,7 +14,7 @@ If it says that guided learning is not set up, say that `/setup-learning` comes 
 
 A hook has already checked that it is the AI's turn. Its text is in your context: the part, its tasks (done or open), and its owner scripts. Do not check again. If there is no such text, the hooks do not run: say so and stop.
 
-If the text says REHEARSAL, its rules come first: the other folder, no git, and simulated tests (`rehearse fail` or `rehearse pass`) in place of real ones.
+If the text says REHEARSAL, its rules come first: the other folder, no git, and simulated tests in place of real ones. Run `rehearse fail` or `rehearse pass` only when the owner says so; if results are missing, ask.
 
 Do the open tasks of this part only. Read `phase-N.plan.json` and *Notes for later* in `phase-N.md` first. Both are in the folder `docs` of `.claude/learning/project.json`, like the owner mark and the owner's background.
 

@@ -285,6 +285,44 @@ class RestartTests(Base):
             self.look()
             self.assertTrue(self.restarted(), text)
 
+    def test_a_broken_seen_file_is_not_deleted_outside_the_lock(self):
+        self.on()
+        path = self.root / LEARNING / "local" / "seen.json"
+        path.write_text("{broken", encoding="utf-8")
+        self.assertEqual(rehearsal._seen(self.found()), {})
+        self.assertEqual(path.read_text(encoding="utf-8"), "{broken")
+        errors = []
+
+        def work():
+            try:
+                self.look()
+            except BaseException as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=work) for _ in range(6)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual((errors, self.seen()["run"]), ([], 2))
+
+    def test_a_file_that_vanished_meanwhile_counts_as_removed(self):
+        for name in ("unlink", "lstat"):
+            self.on()
+            real, gone = getattr(os, name), []
+
+            def vanish(path, *args, **more):
+                if os.fspath(path).endswith("Keeper.cs") and not gone:
+                    gone.append(path)
+                    os.remove(path)
+                return real(path, *args, **more)
+
+            self.switch(ON)
+            with mock.patch.object(os, name, side_effect=vanish):
+                self.look()
+            self.assertEqual(len(gone), 1, name)
+            self.assertTrue((self.fake / "src" / "Keeper.cs").is_file())
+
     def test_run_numbers_go_on_when_local_was_deleted(self):
         self.on()
         rehearsal.tick(self.found(), "ask-todo", "owner")
@@ -348,6 +386,17 @@ class SafetyTests(Base):
         self.switch(ON)
         self.refused()
         self.assertTrue((target / "rehearsal" / "mine.txt").is_file())
+
+    def test_a_link_put_there_later_is_refused(self):
+        self.on()
+        moved = self.tmp / "moved"
+        shutil.move(str(self.fake), str(moved))
+        make_link(self.fake, moved)
+        (moved / "mine.txt").write_text("precious", encoding="utf-8")
+        with self.assertRaises(rehearsal.RehearsalError):
+            self.look()
+        self.assertEqual(self.seen()["run"], 1)
+        self.assertTrue((moved / "mine.txt").is_file())
 
     def test_a_link_that_leads_nowhere_is_refused(self):
         folder = self.valuable()
@@ -591,6 +640,36 @@ class ReportTests(Base):
             encoding="utf-8"))
         self.assertEqual(self.seen()["run"], 3)
 
+    def test_a_kept_report_is_not_written_again(self):
+        rehearsal.tick(self.found(), "finish-early")
+        path = rehearsal.report_path(self.found(), 1)
+        kept = path.read_bytes()
+        (self.root / LEARNING / "local" / "rehearsal-runs" / "run-1.json").write_text("{broken", encoding="utf-8")
+        self.on()
+        self.assertEqual(path.read_bytes(), kept)
+        rehearsal.tick(self.found(), "start-early")
+        path = rehearsal.report_path(self.found(), 2)
+        kept = path.read_bytes()
+        other = self.tmp / "checklist.md"
+        other.write_text("| `new-check` | - | a | b | owner |\n", encoding="utf-8")
+        with mock.patch.object(rehearsal, "CHECKLIST", other):
+            self.on()
+        self.assertEqual(path.read_bytes(), kept)
+        self.on()   # run 3 had no tick, so its report comes at the restart
+        self.assertIn("run 3", rehearsal.report_path(self.found(), 3).read_text(encoding="utf-8"))
+
+    def test_resumed_means_the_same_state(self):
+        self.prompt("/summarize-phase 2")
+        path = self.fake / "src" / "Moth.cs"
+        shown = path.read_bytes()
+        path.write_bytes(shown.replace(b"TODO(owner 1.3)", b"done"))
+        self.session = "s2"
+        self.prompt("/summarize-phase 2")
+        self.assertNotIn("resume-closed", self.ticks())
+        path.write_bytes(shown)
+        self.prompt("/summarize-phase 2")
+        self.assertIn("resume-closed", self.ticks())
+
     def test_report_says_who_and_which_plugin(self):
         rehearsal.tick(self.found(), "finish-early")
         self.assertEqual(self.cli("rehearse", "check", "ask-todo")[0], 0)
@@ -682,6 +761,14 @@ class ChecklistTests(unittest.TestCase):
             self.assertIn(c.by, ("script", "owner"))
             self.assertTrue(c.type and c.expect, c.id)
 
+    def test_the_build_stops_by_itself_for_a_question(self):
+        """Closing the chat in the middle must not depend on how fast the owner is."""
+        self.assertNotIn("Esc", (ROOT / "rehearsal" / "checklist.md").read_text(encoding="utf-8"))
+        docs = ROOT / "rehearsal" / "project" / "Docs" / "learning"
+        tasks = store.read(docs / "phase-2.plan.json")["parts"][1]["tasks"]
+        self.assertEqual(len(tasks), 2)
+        self.assertRegex(tasks[1], "^Ask the owner .* wait for the answer$")
+
     def test_the_commands_in_it_exist(self):
         text = (ROOT / "rehearsal" / "checklist.md").read_text(encoding="utf-8")
         for command in re.findall(r"`/([a-z-]+)", text):
@@ -739,11 +826,13 @@ class FullRunTests(Base):
         self.accepted("/build-phase 2", "part 2 of 2", "1. [open]")
         self.run_cli("log", "task", "part=2", "index=1", "phase=2")
         self.session = "s3"
-        self.accepted("/build-phase 2", "1. [done]", "2. [open]")
+        self.accepted("/build-phase 2", "1. [done]", "2. [open] Ask the owner")
         lantern = (self.fake / "src" / "Lantern.cs").read_bytes()
         self.cut("src/Lantern.cs", "TODO(owner 2.2)")
+        self.run_cli("rehearse", "fail")
+        self.run_cli("log", "task", "part=2", "index=2", "phase=2")   # the owner answered
         code, out = self.cli("hand-over", "2")
-        self.assertEqual(code, 1)
+        self.assertEqual((code, out.count("  - ")), (1, 1), out)   # nothing but the TODO is missing
         self.assertIn("TODO(owner 2.2)", out)
         (self.fake / "src" / "Lantern.cs").write_bytes(lantern)
         self.run_cli("rehearse", "fail")
@@ -756,7 +845,10 @@ class FullRunTests(Base):
         self.blocked("/build-phase 3", "not approved")
         self.assertIn("still being planned", self.edit(self.fake / "src" / "Lantern.cs")[
             "hookSpecificOutput"]["permissionDecisionReason"])
-        self.accepted("/start-phase 4 skip: trying it out", "Planning would start here")
+        shown = self.accepted("/start-phase 4 skip: trying it out", texts.skipped_text(3, "trying it out"),
+                              "Phase 4: ", "Planning would start here", texts.CARRIED_HEADING,
+                              texts.bullet(texts.plan_not_approved(3)))
+        self.assertNotIn("run.sh", shown)
 
     def finish(self):
         self.cut("src/Lantern.cs", "TODO(owner")
@@ -777,7 +869,7 @@ class FullRunTests(Base):
             self.run_cli("log", "rating", "concept=" + concept, "rating=with help", "phase=2")
         shown = self.accepted("/finish-phase 2")
         closing = commands.closing_text(active, 2)
-        self.assertIn(closing, shown)
+        self.assertEqual(shown, texts.rehearsal_short(rehearsal.render.run_number(self.found())) + "\n" + closing)
         self.assertEqual(self.call("Stop", last_assistant_message="no")["decision"], "block")
         self.assertIsNone(self.call("Stop", last_assistant_message="Done.\n" + closing))
 

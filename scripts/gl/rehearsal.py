@@ -19,6 +19,7 @@ CHECKLIST = version.ROOT / "rehearsal" / "checklist.md"
 SETTINGS = (LEARNING / "project.json").as_posix()
 WORDS = ("pass", "fail", "merge", "branch", "check", "report")
 WRONG_BRANCH = "main"
+WITH_RULES = ("build-phase", "summarize-phase")   # the AI shows the text of the others to the owner as it is
 REFUSED = {"locked": "edit-locked", "planning": "edit-unapproved"}   # kind of a refused edit: its check
 _NAME_SURROGATE = 0x20000000   # the bit of a reparse tag that stands for another place (not for a cloud file)
 
@@ -53,12 +54,10 @@ def report_path(project, run):
 
 def _seen(project):
     """What was noted at the last restart; a damaged note is as good as none."""
-    path = _local(project) / SEEN
     try:
-        return store.read(path)
+        return store.read(_local(project) / SEEN)
     except store.BadJson:
-        os.remove(path)
-        return {}
+        return {}   # replaced at the restart, inside the lock
 
 
 def _numbers(folder):
@@ -84,8 +83,11 @@ def _ticks_of(record):
 # --- the folder that is deleted and made again -----------------------------------------------------
 
 def _is_link(path):
-    """True for a symbolic link and for a Windows junction."""
-    info = os.lstat(path)
+    """True for a symbolic link and for a Windows junction. False for what is not there."""
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return False
     return stat.S_ISLNK(info.st_mode) or bool(getattr(info, "st_reparse_tag", 0) & _NAME_SURROGATE)
 
 
@@ -107,6 +109,8 @@ def _remove_file(path):
     def remove():
         try:
             os.unlink(path)
+        except FileNotFoundError:
+            pass   # another process removed it
         except PermissionError:
             if _is_link(path) or os.lstat(path).st_nlink > 1:   # chmod would reach another file
                 raise
@@ -122,7 +126,10 @@ def _empty(folder):
         paths = [e.path for e in entries]
     for path in paths:
         if not _is_link(path) and os.path.isdir(path):
-            _empty(path)
+            try:
+                _empty(path)
+            except FileNotFoundError:
+                continue   # the folder is gone
             try:
                 os.rmdir(path)
             except OSError:
@@ -187,22 +194,25 @@ def _run_of(seen):
 
 
 def _is_current(project, seen, stamp):
+    folder = project.rehearsal_folder
     return (type(seen.get("mtime")) is int and seen["mtime"] == stamp and _run_of(seen) > 0
-            and (project.rehearsal_folder / LEARNING / "project.json").is_file())
+            and (folder / LEARNING / "project.json").is_file()
+            and not any(_is_link(p) for p in (folder, folder.parent, folder.parent.parent)))   # then it is refused
 
 
 def _restart(project, seen):
     stamp = _stamp(project)
     if stamp is None or _is_current(project, seen, stamp):   # another chat was faster
         raise _Nothing()
-    if _run_of(seen):
-        try:
-            _save_report(project, _run_of(seen))
-        except Exception:   # it was saved with each tick; a restart must not fail for it
-            pass
+    old = _run_of(seen)
+    try:   # each tick saves the report, so only a run without ticks has none yet; a kept one stays as it is
+        if old and _record(project, old) and not report_path(project, old).exists():
+            _save_report(project, old)
+    except Exception:
+        pass   # a restart must not fail for it
     _build(project)
     used = _numbers(_local(project) / RUNS) + _numbers(report_path(project, 0).parent)   # also if local/ was deleted
-    run = max([_run_of(seen)] + used) + 1
+    run = max([old] + used) + 1
     store.write(_local(project) / _record_name(run), {
         "run": run, "started": store.now(), "version": version.VERSION, "hash": version.plugin_hash(), "ticks": {}})
     return {"mtime": stamp, "run": run}
@@ -215,7 +225,7 @@ def sync(project):
     if _is_current(project, _seen(project), _stamp(project)):
         return
     try:
-        project.update_local(SEEN, lambda seen: _restart(project, seen))
+        project.update_local(SEEN, lambda seen: _restart(project, seen), tolerant=True)
     except _Nothing:
         pass
 
@@ -409,8 +419,9 @@ def _summarize_checks(active, n, ok, done, session):
         return ["wrong-branch"]
     if st.status != "build":
         return []
-    found = ["resume-closed"] if _in_other_chat(done, "resume-half", session) else []
+    found = []
     if st.turn == "owner" and (st.todos_done, st.todos_total) == (2, 5):
+        found += ["resume-closed"] if _in_other_chat(done, "resume-half", session) else []
         found.append("resume-half")
     if any(s.handed and s.failing and not s.todos_left for s in st.scripts):
         found.append("todo-failing")
@@ -471,7 +482,8 @@ def run(project, name, argument="", watch=True, session=None):
     out = commands.run(project, name, argument)
     if not project.rehearsal:
         return out
-    lines = [rules(project) if out.ok else texts.rehearsal_short(render.run_number(project))]
+    lines = [rules(project) if out.ok and name in WITH_RULES
+             else texts.rehearsal_short(render.run_number(project))]
     if watch:
         lines += _note_command(project, name, argument, out.ok, session)
     if out.ok and name == "summarize-phase":

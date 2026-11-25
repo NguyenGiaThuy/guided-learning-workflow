@@ -190,10 +190,11 @@ def _release(lock, token):
         pass
 
 
-def update(path, fn, timeout=LOCK_TIMEOUT, after=None):
+def update(path, fn, timeout=LOCK_TIMEOUT, after=None, tolerant=False):
     """Read path under `<path>.lock`, call fn(data), write the result, return it.
 
     after() is called once the file is written, while the lock is still held.
+    tolerant: a file that is not valid JSON reads as {}, and is replaced.
     fn may change data in place (and return None) or return a new dict.
     If the lock was taken over as stale while fn ran, nothing is written; the update is
     started again (fn runs again on freshly read data), at most MAX_ATTEMPTS times.
@@ -204,7 +205,12 @@ def update(path, fn, timeout=LOCK_TIMEOUT, after=None):
     for _ in range(MAX_ATTEMPTS):
         token = _acquire(lock, timeout)
         try:
-            data = read(path)
+            try:
+                data = read(path)
+            except BadJson:
+                if not tolerant:
+                    raise
+                data = {}
             result = fn(data)
             if result is not None:
                 data = result

@@ -158,7 +158,10 @@ def _start(project, n, rest):
             data["carried"] = list(carried)
 
     data = project.update_state(n, apply)
-    return Outcome(True, "\n".join(_planning_lines(project, n, data) + [texts.next_line("approve-phase", n)]))
+    before = store.read(project.state_path(n - 1)) if reason else {}
+    lines = [texts.skipped_text(n - 1, before.get("skip"))] if before.get("status") == "skipped" else []
+    lines += _planning_lines(project, n, data)
+    return Outcome(True, "\n".join(lines + [texts.next_line("approve-phase", n)]))
 
 
 def _planning_lines(project, n, data):

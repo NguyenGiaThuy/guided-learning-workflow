@@ -95,6 +95,7 @@ class StartTests(Base):
         self.assertEqual((self.data(1)["status"], self.data(1)["skip"]), ("skipped", "no time: really"))
         self.assertEqual(self.data(2)["carried"], items)
         self.assertIn(items[0], text)
+        self.assertTrue(text.startswith(texts.skipped_text(1, "no time: really") + "\n"))
 
     def test_skip_of_a_phase_without_a_file_creates_it(self):
         self.make()
@@ -108,7 +109,7 @@ class StartTests(Base):
         text = self.refused("start", "2")
         self.assertIn("merge", text.lower())
         self.assertIn("stage-1", text)
-        self.accepted("start", "2 skip: merge comes later")
+        self.assertNotIn("was skipped", self.accepted("start", "2 skip: merge comes later"))
         self.assertEqual(self.data(1)["status"], "done")
         self.assertNotIn("skip", self.data(1))
 

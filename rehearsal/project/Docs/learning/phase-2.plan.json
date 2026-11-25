@@ -24,7 +24,7 @@
       "name": "Lantern",
       "tasks": [
         "Check that the shell of the lantern has both TODOs",
-        "Check that the tests of the lantern have the owner mark"
+        "Ask the owner whether the light falls off in a straight line, and wait for the answer"
       ],
       "scripts": [
         2

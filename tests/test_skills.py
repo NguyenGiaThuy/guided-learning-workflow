@@ -161,6 +161,11 @@ class RuleTests(unittest.TestCase):
         self.says("approve-phase", "The first `/build-phase` sets it again")
         self.assertNotIn("Start no plan document", read("approve-phase"))
 
+    def test_the_owner_says_when_tests_are_simulated(self):
+        for name in ("build-phase", "summarize-phase"):
+            self.says(name, "simulated", "only when the owner says so")
+        self.assertIn("only when the owner says so", texts.rehearsal_rules(1, "x"))
+
     def test_planning_is_resumed_and_saved_in_blocks(self):
         self.says("start-phase", "Read the plan and `phase-N.md` first", "Save each block as soon as it is agreed")
 

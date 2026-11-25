@@ -12,7 +12,7 @@ The status of the phase, worked out from the project:
 
 Show it first, unchanged. Do not work it out again. Then do what fits it, and only that. End every answer with the next step.
 
-- **REHEARSAL**: its rules come first: the other folder, no git, and simulated tests in place of real ones. Otherwise do the same as always.
+- **REHEARSAL**: its rules come first: the other folder, no git, and simulated tests in place of real ones. Run `rehearse` only when the owner says so. Otherwise do the same as always.
 - **Not set up**: say that `/setup-learning` comes first, and stop. **No phase**: name the command it names, and stop.
 - **Wrong branch**: say so, with the command to switch, and stop.
 - **Planning or skipped**: name the next command and stop.

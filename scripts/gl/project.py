@@ -110,9 +110,9 @@ class Project:
 
         return store.update(path, fn, after=note)
 
-    def update_local(self, name, fn, after=None):
+    def update_local(self, name, fn, after=None, tolerant=False):
         """Every read-modify-write of a file in local/, which holds no phase."""
-        return store.update(self.root / LEARNING / "local" / name, fn, after=after)
+        return store.update(self.root / LEARNING / "local" / name, fn, after=after, tolerant=tolerant)
 
 
 def find(cwd):
