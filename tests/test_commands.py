@@ -226,6 +226,232 @@ class StartOnGitTests(unittest.TestCase):
         self.assertTrue(commands.run(proj, "start", "2").ok)
 
 
+class GitBase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def make(self, phases=None, files=None):
+        root = helpers.make_project(self.tmp / "game", phases=phases, files=files)
+        if not helpers.git_init(root):
+            self.skipTest("git is not available")
+        self.project = project.find(root)
+        return self.project
+
+    def git(self, *args):
+        return helpers.git(self.project.root, *args)
+
+    def commit(self):
+        helpers.commit(self.project.root)
+
+    def refused(self, name, argument=""):
+        out = commands.run(self.project, name, argument)
+        self.assertFalse(out.ok, out.text)
+        return out.text
+
+    def accepted(self, name, argument=""):
+        out = commands.run(self.project, name, argument)
+        self.assertTrue(out.ok, out.text)
+        return out.text
+
+
+class UncommittedTests(GitBase):
+    """The phase files of the phase before, changed and not committed."""
+
+    ITEM = texts.phase_files_uncommitted(1, ["Docs/learning/phase-1.json", "Docs/learning/phase-1.md"])
+
+    def change(self, **more):
+        self.project.update_state(1, lambda d: d.update(more))
+        self.project.md_path(1).write_bytes(b"# Phase 1\n")
+
+    def test_done_and_not_merged(self):
+        self.make({1: {"state": {"status": "build", "branch": "stage-1", "turn": "ai"}, "plan": full_plan(1)}})
+        self.git("switch", "-q", "-c", "stage-1")
+        self.git("commit", "-q", "--allow-empty", "-m", "work")
+        self.change(status="done")
+        text = self.refused("start", "2")
+        self.assertIn(self.ITEM, text)
+        self.assertIn("Commit them first", text)
+        self.commit()
+        text = self.refused("start", "2")
+        self.assertNotIn("ommit them first", text)
+        self.assertIn(texts.previous_not_merged(2, "stage-1"), text)
+
+    def test_still_open(self):
+        self.make({1: {"state": {"status": "build", "turn": "ai"}, "plan": full_plan(1)}})
+        self.assertNotIn("ommit them first", self.refused("start", "2"))
+        self.change(x=1)
+        self.assertIn(self.ITEM, self.refused("start", "2"))
+
+    def test_without_git_and_in_a_rehearsal_nothing_is_said(self):
+        self.make({1: {"state": {"status": "build", "turn": "ai"}, "plan": full_plan(1)}})
+        self.change(x=1)
+        with mock.patch.object(state, "_git", return_value=None):
+            self.assertNotIn("ommit them first", self.refused("start", "2"))
+        self.assertEqual(state.uncommitted(project.Project(self.project.rehearsal_folder, {"docs": "d"}), 1), [])
+
+
+class OtherBranchTests(GitBase):
+    """An open phase while its files are not on the branch that is checked out."""
+
+    SHELLS = {"src/Moth.cs": shell(["1.1", "1.2"]), "src/Lamp.cs": shell(["2.1"]), "src/Keeper.cs": shell(["3.1"])}
+    WRONG = texts.wrong_branch("stage-2", "main")
+
+    def record(self):
+        return store.read(self.project.root / ".claude" / "learning" / "local" / "open.json")
+
+    def entry(self, branch="stage-2", locked=(), built=True):
+        return {"2": {"branch": branch, "locked": list(locked), "built": built}}
+
+    def planned(self):
+        """Phase 1 is done; phase 2 is planned and nothing of it is committed."""
+        self.make({1: {"state": {"status": "done"}, "plan": full_plan(1)}})
+        self.accepted("start", "2")
+        helpers.write_json(self.project.plan_path(2), full_plan())
+
+    def build(self):
+        self.accepted("approve", "2")
+        self.accepted("build", "2")
+
+    def away(self, hand_over=True):
+        """Phase 2 is built on stage-2, and main is checked out."""
+        self.make({1: {"state": {"status": "done"}, "plan": full_plan(1)}})
+        self.git("switch", "-q", "-c", "stage-2")
+        self.accepted("start", "2")
+        helpers.write_json(self.project.plan_path(2), full_plan())
+        self.build()
+        if hand_over:
+            helpers.make_project(self.project.root, files=dict(self.SHELLS, **TEST_CODE))
+            tests = {t: "failed" for s in full_plan()["scripts"] for t in s["tests"]}
+            self.project.update_state(2, lambda d: d.update(results={"Unit": suite_result(tests)}))
+            out = commands.hand_over(self.project, 2)
+            self.assertTrue(out.ok, out.text)
+        self.commit()
+        self.git("switch", "-q", "main")
+        self.assertFalse(self.project.state_path(2).exists())
+
+    def test_the_record_follows_the_phase(self):
+        self.planned()
+        self.git("switch", "-q", "-c", "stage-2")
+        self.assertEqual(self.record(), {})
+        self.accepted("approve", "2")
+        self.assertEqual(self.record(), self.entry(built=False))
+        self.git("switch", "-q", "-c", "other")
+        self.accepted("build", "2")
+        self.assertEqual(self.record(), self.entry("other"))
+        self.project.update_state(2, lambda d: d.update(turn="owner", locked=["src/Moth.cs"]))
+        self.accepted("start", "3 skip: later")
+        self.assertEqual(self.record(), {})
+        self.accepted("start", "2")   # planned again
+        self.assertEqual(self.record(), {})
+
+    def test_the_hand_over_notes_the_locks_and_finish_removes_them(self):
+        self.away()
+        self.assertEqual(self.record(), self.entry(locked=["src/Moth.cs", "src/Lamp.cs", "src/Keeper.cs"]))
+        self.git("switch", "-q", "stage-2")
+        for name in self.SHELLS:
+            (self.project.root / name).write_bytes(b"class X {}\n")
+        self.project.md_path(2).write_bytes(FULL_MD.encode("utf-8"))
+        passed = {t: "passed" for s in full_plan()["scripts"] for t in s["tests"]}
+        self.project.update_state(2, lambda d: d.update(results={"Unit": suite_result(passed)}, log=FinishTests.LOG))
+        self.accepted("finish", "2")
+        self.assertEqual(self.record(), {})
+
+    def test_planning_again_removes_a_record_that_was_left(self):
+        self.planned()
+        self.project.update_local("open.json", lambda d: self.entry())
+        self.project.update_state(2, lambda d: d.update(status="skipped"))
+        self.accepted("start", "2")
+        self.assertEqual(self.record(), {})
+
+    def test_every_command_names_the_branch(self):
+        self.away()
+        before = self.git("status", "--porcelain")
+        for argument in ("2", ""):
+            text = self.accepted("summarize", argument)
+            self.assertIn(self.WRONG, text)
+            self.assertTrue(text.startswith("Phase 2 - build"), text)
+            self.assertTrue(text.endswith(texts.next_line("summarize-phase", 2)))
+        for name, argument in (("build", "2"), ("build", ""), ("approve", "2"), ("approve", "2 change: x"),
+                               ("finish", "2"), ("start", "2"), ("start", "3"), ("start", "3 skip: x"), ("start", "4")):
+            text = self.refused(name, argument)
+            self.assertIn(self.WRONG, text, name)
+            self.assertTrue(text.endswith(texts.next_line("summarize-phase", 2)), text)
+        out = commands.hand_over(self.project, None)
+        self.assertEqual((out.ok, self.WRONG in out.text), (False, True), out.text)
+        self.assertEqual(self.git("status", "--porcelain"), before)
+        self.assertIn("Phase 1 - done", self.accepted("summarize", "1"))
+        self.git("switch", "-q", "--detach", "main")
+        self.assertIn(texts.wrong_branch("stage-2", state.DETACHED), self.accepted("summarize", "2"))
+        self.git("switch", "-q", "stage-2")
+        self.assertIn("Your turn", self.accepted("summarize", "2"))
+
+    def test_an_older_phase_file_counts_as_missing(self):
+        self.planned()
+        self.commit()   # planned on main, and built on stage-2
+        self.git("switch", "-q", "-c", "stage-2")
+        self.build()
+        self.commit()
+        self.git("switch", "-q", "main")
+        self.assertEqual(self.project.active and store.read(self.project.state_path(2))["status"], "planning")
+        self.assertIn(self.WRONG, self.accepted("summarize", "2"))
+        for name, argument in (("start", "2"), ("start", "3"), ("approve", "2"), ("build", "2"), ("finish", "2")):
+            self.assertIn(self.WRONG, self.refused(name, argument))
+
+    def test_approved_here_and_built_elsewhere(self):
+        self.planned()
+        self.accepted("approve", "2")
+        self.commit()
+        self.git("switch", "-q", "-c", "stage-2")   # after the approval: not wrong
+        self.assertNotIn("Wrong branch", self.accepted("summarize", "2"))
+        self.accepted("build", "2")
+        self.commit()
+        self.git("switch", "-q", "main")
+        self.assertIn(self.WRONG, self.refused("build", "2"))
+
+    def test_a_done_phase_here_is_not_away(self):
+        self.away()
+        for status in ("done", "skipped"):
+            helpers.write_json(self.project.state_path(2), {"status": status})
+            self.assertNotIn("Wrong branch", self.accepted("summarize", "2"))
+
+    def test_without_git_or_branch_or_record_it_is_as_before(self):
+        self.away()
+        as_before = texts.no_phase(2, [1])
+        with mock.patch.object(state, "_git", return_value=None):
+            self.assertIn(as_before, self.refused("summarize", "2"))
+        local = self.project.root / ".claude" / "learning" / "local" / "open.json"
+        for raw in (b"{", b"[]", b'{"2": 5, "x": {}}', b'{"2": {"branch": 5, "locked": 7}}'):
+            local.write_bytes(raw)
+            self.assertIn(as_before, self.refused("summarize", "2"), raw)
+        helpers.write_json(local, self.entry())
+        self.assertIn(self.WRONG, self.accepted("summarize", "2"))
+        self.git("branch", "-m", "stage-2", "renamed")
+        self.assertIn(as_before, self.refused("summarize", "2"))
+
+    def test_a_damaged_record_is_replaced(self):
+        self.planned()
+        local = self.project.root / ".claude" / "learning" / "local"
+        local.mkdir(parents=True, exist_ok=True)
+        (local / "open.json").write_bytes(b"{")
+        self.accepted("approve", "2")
+        self.assertEqual(self.record(), self.entry("main", built=False))
+
+    def test_a_record_that_cannot_be_written_does_not_undo_the_command(self):
+        self.planned()
+        with mock.patch.object(project.Project, "update_local", side_effect=store.LockTimeout("x")):
+            self.accepted("approve", "2")
+        self.assertEqual(store.read(self.project.state_path(2))["status"], "build")
+
+    def test_a_rehearsal_has_no_record(self):
+        self.away()
+        fake = project.Project(self.project.rehearsal_folder, self.project.settings)
+        fake.note_open(2, {"status": "build", "branch": "stage-2", "turn": "ai"})
+        self.assertFalse((fake.root / ".claude" / "learning" / "local").exists())
+        helpers.write_json(fake.root / ".claude" / "learning" / "local" / "open.json", self.entry())
+        self.assertEqual(fake.open_phases(), {})
+
+
 class ApproveTests(Base):
     def planning(self, plan_=None, stored=None):
         st = {"status": "planning"}
@@ -771,18 +997,21 @@ class FinishTests(Base):
         self.ready()
         out = commands.run(self.project, "finish", "2")
         self.assertTrue(out.ok, out.text)
-        self.assertEqual(out.text, "Phase 2 is done. Saved in Docs/learning/phase-2.md.\n"
-                                   "Branch stage-2: not merged.\n"
-                                   "Carried to phase 3: Enemy AI | start smaller\n"
-                                   "Next: merge the branch, then open a new chat and type /start-phase 3")
+        closing = ("Phase 2 is done. Saved in Docs/learning/phase-2.md.\n"
+                   "Branch stage-2: not merged.\n"
+                   "Carried to phase 3: Enemy AI | start smaller\n"
+                   "Next: merge the branch, then open a new chat and type /start-phase 3")
+        self.assertEqual(out.text, texts.commit_first("Docs/learning/phase-2.json", "Docs/learning/phase-2.md")
+                         + "\n" + closing)
+        self.assertIn("ommit them before the merge", out.text.split("\n")[0])
         d = self.data()
         self.assertEqual((d["status"], d["locked"], d["closing"]), ("done", [], {"pending": True, "tries": 0}))
-        self.assertEqual(commands.closing_text(self.project, 2), out.text)
+        self.assertEqual(commands.closing_text(self.project, 2), closing)
 
     def test_closing_text_of_a_merged_branch_and_no_weak_concept(self):
         log = self.LOG[:1] + [{"kind": "rating", "concept": "ai", "rating": "on my own"}]
         self.ready({"log": log})
-        self.assertEqual(self.accepted("finish", "phase-2"),
+        self.assertEqual(self.accepted("finish", "phase-2").split("\n", 1)[1],
                          "Phase 2 is done. Saved in Docs/learning/phase-2.md.\n"
                          "Branch stage-2: merged.\n"
                          "Carried to phase 3: no weak concept | start smaller\n"
@@ -791,7 +1020,9 @@ class FinishTests(Base):
     def test_closing_text_without_a_branch(self):
         self.branch = None
         self.ready({"branch": None})
-        self.assertNotIn("Branch", self.accepted("finish", "2"))
+        text = self.accepted("finish", "2")
+        self.assertNotIn("Branch", text)
+        self.assertEqual(text, commands.closing_text(self.project, 2))   # without git there is nothing to commit
 
     def test_second_time_changes_nothing(self):
         self.ready()

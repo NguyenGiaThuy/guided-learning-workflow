@@ -217,6 +217,39 @@ def is_merged(project, branch):
     return name is None or name == branch or any(_is_ancestor(project, ref, r) for r in refs)
 
 
+def open_elsewhere(project, n):
+    """(its branch, the one that is checked out) of a phase that is open on another branch, so that its
+    file here is missing or older. None if it is not, or without git or that branch."""
+    entry = project.open_phases().get(n)
+    if entry is None:
+        return None
+    data = store.read(project.state_path(n))
+    if data.get("status") in ("done", "skipped"):
+        return None
+    if data.get("status") == "build" and not data.get("turn") and not entry["built"]:
+        return None   # only approved so far: the first build sets the branch again
+    current = current_branch(project)
+    if current is None or current == entry["branch"]:
+        return None
+    try:
+        return (entry["branch"], current) if _ref_exists(project, "refs/heads/" + entry["branch"]) else None
+    except _GitError:
+        return None
+
+
+def uncommitted(project, n):
+    """The files of a phase with changes that are not committed, relative to the project."""
+    if project.is_rehearsal:
+        return []
+    names = []
+    for path in (project.state_path(n), project.plan_path(n), project.md_path(n)):
+        name = os.path.relpath(path, project.root).replace(os.sep, "/")
+        found = _git(project, "--no-optional-locks", "--literal-pathspecs", "status", "--porcelain", "--", name)
+        if found is not None and found[0] == 0 and found[1]:
+            names.append(name)
+    return names
+
+
 def is_ignored(project, path):
     """True if git is there and a .gitignore hides the file from it."""
     found = _git(project, "check-ignore", "-q", "--", path)
@@ -426,6 +459,11 @@ def compute(project, n):
         current = current_branch(project)
         if current is not None and current != st.branch:
             st.wrong_branch = current
+    away = open_elsewhere(project, n)
+    if away:
+        if st.status not in BRANCH_STATUSES:   # nothing is known here but the branch
+            st.status, st.open_items, st.plan_gaps = "build", [], []
+        st.branch, st.wrong_branch = away
     return st
 
 

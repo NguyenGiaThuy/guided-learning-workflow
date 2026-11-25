@@ -322,6 +322,11 @@ def previous_not_merged(n, branch):
             "from, and type /start-phase %s again. To go on without: %s" % (n - 1, branch, n, skip_command(n)))
 
 
+def phase_files_uncommitted(n, names):
+    return ("Files of phase %s have changes that are not committed: %s. Commit them first, on the branch of the phase."
+            % (n, ", ".join(names)))
+
+
 def already_started(n, status):
     return "Phase %s was started already. Its status: %s." % (n, status)
 
@@ -559,6 +564,10 @@ def still_in(status):
     return "The phase is still in %s." % status
 
 
+def commit_first(state, notes):
+    return "%s and %s have changed. Commit them before the merge." % (state, notes)
+
+
 def closing_done(n, path):
     return "Phase %s is done. Saved in %s." % (n, path)
 
@@ -681,6 +690,11 @@ def hook_error(message):
 def refused_locked(path, n):
     return ("%s is locked: in phase %s the owner writes it. Do not edit it by any other route. "
             "Help the owner with hints or a review instead (/summarize-phase %s)." % (path, n, n))
+
+
+def refused_locked_elsewhere(path, n, branch):
+    return ("%s is locked: the owner writes it in phase %s, which is open on the branch %s. Do not edit it by any other "
+            "route. Tell the owner that another branch is checked out." % (path, n, branch))
 
 
 def refused_state(path):

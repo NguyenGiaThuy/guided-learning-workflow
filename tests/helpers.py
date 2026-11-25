@@ -1,5 +1,7 @@
 """Shared test helpers. Add keyword arguments to make_project as later tests need them."""
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -136,3 +138,32 @@ TWO_PARTS = [{"name": "Moths", "tasks": ["Shells", "Tests"], "scripts": [1, 2]},
 TEST_CODE = {"src/MothTests.cs": "class MothTests { void Turns() {} void Dies() {} }\n",
              "src/LampTests.cs": "class LampTests { void Glows() {} }\n",
              "src/KeeperTests.cs": "class KeeperTests { void Walks() {} }\n"}
+
+
+def git(root, *args):
+    """Run git in a repository of a test, as nobody in particular. Returns its output."""
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith("GIT_")}
+    env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid", GIT_COMMITTER_NAME="t",
+               GIT_COMMITTER_EMAIL="t@example.invalid", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    done = subprocess.run(["git", "-C", str(root), "-c", "core.autocrlf=false"] + list(args), env=env,
+                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if done.returncode:
+        raise AssertionError("git %s: %s" % (" ".join(args), done.stderr.decode("utf-8", "replace")))
+    return done.stdout.decode("utf-8")
+
+
+def git_init(root):
+    """Make root a repository with everything committed on main. False if git is missing."""
+    try:
+        git(root, "init", "-q")
+    except OSError:
+        return False
+    (Path(root) / ".gitignore").write_bytes(b".claude/learning/local/\n.claude/learning/config.json\n")
+    commit(root)
+    git(root, "branch", "-q", "-M", "main")
+    return True
+
+
+def commit(root):
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "--allow-empty", "-m", "x")

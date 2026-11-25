@@ -11,7 +11,7 @@ import time
 from collections import namedtuple
 from pathlib import Path
 
-from . import commands, project, rehearsal, render, scan, store, texts
+from . import commands, project, rehearsal, render, scan, state, store, texts
 from .project import LEARNING, inside, norm
 
 REHEARSAL_FILES = (LEARNING / "rehearsal").as_posix() + "/"
@@ -178,6 +178,10 @@ def _refusal(p, target, lost):
     for n, data in phases:
         if any(norm(p.root / path) == norm(target) for path in _locked(data)):
             return Refusal("locked", texts.refused_locked(name, n))
+    for n, entry in p.open_phases().items():
+        away = any(norm(p.root / path) == norm(target) for path in entry["locked"]) and state.open_elsewhere(p, n)
+        if away:
+            return Refusal("locked", texts.refused_locked_elsewhere(name, n, away[0]))
     return _code_refusal(p, phases, target, name) or _todo_refusal(p, target, name, lost)
 
 
@@ -524,8 +528,8 @@ def _stop(found, data, cwd):
     message = data.get("last_assistant_message")
     message = message if isinstance(message, str) else ""
     asked, given_up, warnings = [], [], []
-    for n, state in _phases(active):
-        if not _pending(state):
+    for n, phase in _phases(active):
+        if not _pending(phase):
             continue
         text = commands.closing_text(active, n)
         present = _contains(message, text)

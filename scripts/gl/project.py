@@ -6,6 +6,7 @@ from . import settings as checks
 from . import store, texts
 
 LEARNING = Path(".claude") / "learning"
+OPEN = "open.json"
 
 
 class BadSettings(store.BadJson):
@@ -135,6 +136,43 @@ class Project:
     def update_local(self, name, fn, after=None, tolerant=False):
         """Every read-modify-write of a file in local/, which holds no phase."""
         return store.update(self.root / LEARNING / "local" / name, fn, after=after, tolerant=tolerant)
+
+    def open_phases(self):
+        """{number: {"branch", "locked", "built"}} of the phases that were built on this machine and are
+        still open. The phase files are in git, so another branch does not have them; this record is not."""
+        if self.is_rehearsal:   # its branches are simulated
+            return {}
+        try:
+            data = store.read(self.root / LEARNING / "local" / OPEN)
+        except (store.BadJson, OSError):
+            return {}
+        found = {}
+        for key, entry in data.items():
+            branch, locked = (entry.get("branch"), entry.get("locked")) if isinstance(entry, dict) else (None, None)
+            if key.isdigit() and isinstance(branch, str) and isinstance(locked, list):
+                found[int(key)] = {"branch": branch, "locked": [x for x in locked if isinstance(x, str)],
+                                   "built": bool(entry.get("built"))}
+        return found
+
+    def note_open(self, n, data):
+        """Keep the record of open phases in step with the state of phase n."""
+        if self.is_rehearsal:
+            return
+        entry = None
+        if data.get("status") == "build" and data.get("branch"):
+            entry = {"branch": data["branch"], "locked": list(data.get("locked") or []), "built": bool(data.get("turn"))}
+        if self.open_phases().get(n) == entry:
+            return
+
+        def apply(found):
+            found.pop(str(n), None)
+            if entry:
+                found[str(n)] = entry
+
+        try:
+            self.update_local(OPEN, apply, tolerant=True)
+        except (OSError, store.LockTimeout):
+            pass   # the state itself is safe
 
 
 def find(cwd):

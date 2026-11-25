@@ -51,7 +51,8 @@ def _keyword(rest, word):
 
 
 def latest(project):
-    return max(project.phase_numbers(), default=None)
+    away = [n for n in project.open_phases() if state.open_elsewhere(project, n)]
+    return max(project.phase_numbers() + away, default=None)
 
 
 def suggestion(project):
@@ -72,6 +73,13 @@ def _need_phase(project, n):
     known = project.phase_numbers()
     startable = n if n == 1 or n - 1 in known else max(known, default=0) + 1
     raise _refuse([texts.no_phase(n, known)], texts.next_line("start-phase", startable))
+
+
+def _refuse_elsewhere(project, name, n):
+    """Refuse a command of a phase that is open on another branch; a later one cannot start either."""
+    for number in sorted(project.open_phases()):
+        if (number == n or name == "start-phase" and number < n) and state.open_elsewhere(project, number):
+            _wrong_branch(state.compute(project, number))
 
 
 def _no_rest(name, n, rest):
@@ -106,11 +114,16 @@ def _mark_skipped(project, prev, reason, items):
                 _add(items, state.compute(project, prev).open_items)
             data.update(status="skipped", skip=reason)
 
-    project.update_state(prev, apply)
+    project.note_open(prev, project.update_state(prev, apply))
 
 
 def _add(items, more):
     items.extend(i for i in more if i not in items)
+
+
+def _uncommitted_lines(project, n):
+    names = state.uncommitted(project, n)
+    return [texts.phase_files_uncommitted(n, names)] if names else []
 
 
 def _leave_previous(project, n, reason, carried):
@@ -127,10 +140,12 @@ def _leave_previous(project, n, reason, carried):
     st = state.compute(project, prev)
     if st.status == "done":
         if st.branch and not state.is_merged(project, st.branch):
-            raise _refuse([texts.previous_not_merged(n, st.branch)], texts.next_line("start-phase", n))
+            raise _refuse([texts.previous_not_merged(n, st.branch)] + _uncommitted_lines(project, prev),
+                          texts.next_line("start-phase", n))
     elif st.status != "skipped":
         items = ([_wrong_branch_text(st)] if st.wrong_branch else []) + st.open_items
-        raise _refuse([texts.previous_open(n)] + _open_lines(items), render.next_line(st))
+        raise _refuse([texts.previous_open(n)] + _uncommitted_lines(project, prev) + _open_lines(items),
+                      render.next_line(st))
     _add(carried, _carried_lines(project, prev))
 
 
@@ -159,6 +174,7 @@ def _start(project, n, rest):
             data["carried"] = list(carried)
 
     data = project.update_state(n, apply)
+    project.note_open(n, data)
     before = store.read(project.state_path(n - 1)) if reason else {}
     lines = [texts.skipped_text(n - 1, before.get("skip"))] if before.get("status") == "skipped" else []
     lines += _planning_lines(project, n, data)
@@ -260,7 +276,7 @@ def _approve(project, n, rest):
             st = state.compute(project, n)
             raise _refuse([texts.cannot_in_status("approve-phase", n, status)], render.next_line(st))
 
-    project.update_state(n, apply)
+    project.note_open(n, project.update_state(n, apply))
     return Outcome(True, "\n".join(lines + [render.next_line(state.compute(project, n))]))
 
 
@@ -312,6 +328,7 @@ def _build(project, n, rest):
         data.update(turn="ai", part=st.part)
 
     data = project.update_state(n, apply)
+    project.note_open(n, data)
     return Outcome(True, "\n".join(_build_lines(project, n, data) + [texts.next_line("summarize-phase", n)]))
 
 
@@ -410,8 +427,10 @@ def hand_over(project, n=None):
     try:
         if n is None:
             raise _refuse([texts.NO_PHASE_YET], texts.next_line("start-phase", 1))
+        _refuse_elsewhere(project, "hand-over", n)
         _need_phase(project, n)
         data = project.update_state(n, apply)
+        project.note_open(n, data)
     except _Stop as stop:
         return stop.outcome
     st = state.compute(project, n)
@@ -426,7 +445,8 @@ def hand_over(project, n=None):
 
 def _summarize(project, n, rest):
     _no_rest("summarize-phase", n, rest)
-    _need_phase(project, n)
+    if not state.open_elsewhere(project, n):
+        _need_phase(project, n)
     return Outcome(True, render.status(state.compute(project, n)).rstrip("\n"))
 
 
@@ -461,9 +481,13 @@ def _finish(project, n, rest):
                           render.next_line(st))
         data.update(status="done", locked=[], closing={"pending": True, "tries": 0})
 
-    project.update_state(n, apply)
+    project.note_open(n, project.update_state(n, apply))
     scorecard.write_once(project, n)
-    return Outcome(True, closing_text(project, n))
+    text = closing_text(project, n)
+    if not project.is_rehearsal and state.current_branch(project) is not None:
+        text = texts.commit_first(_docs_path(project, project.state_path(n)),
+                                  _docs_path(project, project.md_path(n))) + "\n" + text
+    return Outcome(True, text)
 
 
 # --- dispatch --------------------------------------------------------------------------------
@@ -481,6 +505,8 @@ def _run(project, name, argument):
             raise _refuse([texts.NO_PHASE_YET], texts.next_line("start-phase", 1))
     if n is None or n < 1:
         raise _refuse([texts.bad_number(argument.strip(), name)], suggestion(project))
+    if name != "summarize-phase":   # it shows the wrong branch itself
+        _refuse_elsewhere(project, name, n)
     return _COMMANDS[name](project, n, rest)
 
 

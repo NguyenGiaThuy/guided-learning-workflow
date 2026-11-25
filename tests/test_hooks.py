@@ -200,7 +200,8 @@ class PromptTests(Base):
         self.call("Stop", last_assistant_message="/finish-phase 2")
         self.assertEqual(self.data()["status"], "build")
         out = self.prompt("/finish-phase 2")
-        self.assertEqual(out["hookSpecificOutput"]["additionalContext"], commands.closing_text(found, 2))
+        first = texts.commit_first("Docs/learning/phase-2.json", "Docs/learning/phase-2.md")
+        self.assertEqual(out["hookSpecificOutput"]["additionalContext"], first + "\n" + commands.closing_text(found, 2))
         self.assertEqual((self.data()["status"], self.data()["closing"]), ("done", {"pending": True, "tries": 0}))
 
     def test_learning_py_has_no_owner_command(self):
@@ -288,6 +289,32 @@ class LockedTests(Base):
         self.make({"status": "done", "locked": []}, n=1)
         self.make(n=2)
         self.denied(self.edit("src/Moth.cs"), "phase 2")
+
+    def test_locked_script_of_a_phase_on_another_branch(self):
+        self.make({"locked": []})
+        if not helpers.git_init(self.root):
+            self.skipTest("git is not available")
+        helpers.git(self.root, "branch", "stage-3")
+        record = self.root / ".claude" / "learning" / "local" / "open.json"
+        helpers.write_json(record, {"3": {"branch": "stage-3", "locked": ["src/Other.cs"], "built": True}})
+        text = self.denied(self.edit(self.root / "src" / ".." / "src" / "Other.cs"), "src/Other.cs is locked", "stage-3")
+        self.assertIn("phase 3", text)
+        self.allowed(self.edit("src/Free.cs", tid="t2"))
+        with mock.patch.object(state, "current_branch", return_value="stage-3"):
+            self.allowed(self.edit("src/Other.cs", tid="t3"))   # here the phase file itself decides
+        helpers.write_json(self.root / "Docs" / "learning" / "phase-3.json", {"status": "done"})
+        self.allowed(self.edit("src/Other.cs", tid="t4"))
+        (self.root / "Docs" / "learning" / "phase-3.json").unlink()
+        helpers.git(self.root, "branch", "-D", "stage-3")
+        self.allowed(self.edit("src/Other.cs", tid="t5"))
+
+    def test_the_local_record_is_guarded_and_not_reported(self):
+        self.make()
+        record = self.root / ".claude" / "learning" / "local" / "open.json"
+        self.denied(self.write(record, "{}"), "learning script")
+        self.pre("Bash")
+        helpers.write_json(record, {"2": {"branch": "stage-2", "locked": [], "built": True}})
+        self.assertIsNone(self.post())
 
     def test_edit_from_a_chat_opened_elsewhere_is_guarded(self):
         self.make()
