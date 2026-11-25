@@ -297,6 +297,20 @@ class LockedTests(Base):
             self.allowed(self.edit(self.root / "src" / "Other.cs", cwd=cwd))
         self.assertEqual(self.files(), before, "no snapshot outside of the project")
 
+    def test_unreadable_project_of_the_edited_file_denies(self):
+        self.make()
+        (self.tmp / "plain").mkdir()
+        real = store.read
+
+        def read(path):
+            if Path(path).name == "project.json":
+                raise PermissionError(13, "Permission denied", str(path))
+            return real(path)
+
+        with mock.patch.object(store, "read", read):
+            self.denied(self.edit(self.root / "src" / "Moth.cs", cwd=self.tmp / "plain"),
+                        "guided-learning error: ", "project.json")
+
     def test_edit_of_another_game_is_guarded(self):
         self.make({"locked": []})
         other = self.tmp / "other"
@@ -351,6 +365,12 @@ class TodoTests(Base):
         (self.root / "src" / "Moth.cs").write_bytes(("// A TODO(owner 1.1)\n// A TODO(owner 1.1)\n").encode())
         self.allowed(self.edit("src/Moth.cs", "// A TODO(owner 1.1)\n", ""))
         self.denied(self.edit("src/Moth.cs", "// A TODO(owner 1.1)\n", "", replace_all=True), "1.1")
+
+    def test_edits_count_only_for_multiedit(self):
+        for edits in ([], [{"old_string": "class", "new_string": "struct"}]):
+            self.denied(self.edit("src/Moth.cs", self.LINE, "", edits=edits), "1.1")
+        self.denied(self.pre("MultiEdit", file_path="src/Moth.cs", old_string="class", new_string="struct",
+                             edits=[{"old_string": self.LINE, "new_string": ""}]), "1.1")
 
     def test_planned_script_outside_the_code_folders(self):
         plan = full_plan()
@@ -506,6 +526,14 @@ class SnapshotTests(Base):
         (self.root / "Docs" / "learning" / "phase-2.json").write_bytes(b'{"status": ')
         self.reported(self.post(), "Docs/learning/phase-2.json")
 
+    def test_project_json_with_wrong_types_does_not_lose_the_report(self):
+        for text in (b'{"docs": 5, "code": 5}', b'{"docs": ["x"]}'):
+            self.make()
+            self.pre("Bash")
+            self.append("src/Moth.cs")
+            (self.root / ".claude" / "learning" / "project.json").write_bytes(text)
+            self.reported(self.post(), ".claude/learning/project.json", "src/Moth.cs")
+
     def test_failed_tool_is_reported_in_its_own_form(self):
         self.make()
         self.pre("Bash")
@@ -593,6 +621,27 @@ class SnapshotTests(Base):
             answer = self.post()
             t.join()
         self.assertIsNone(answer)
+
+    def test_script_that_finishes_between_two_looks_is_not_reported(self):
+        found = self.make()
+        log.add(found, 2, "note", text="a")
+        self.pre("Bash")
+        path, lock = found.state_path(2), Path(str(found.state_path(2)) + ".lock")
+        lock.write_bytes(b"x")   # another process is in update_state: the file is written, the note is not
+        self.append("Docs/learning/phase-2.json", "\n")
+        real, looks = hooks._noted, []
+
+        def noted(note):
+            value = real(note)
+            looks.append(value)
+            if len(looks) == 2:   # it finishes right after the note was read
+                store.write(found.note_path(2), {"hash": store.file_hash(path)})
+                lock.unlink()
+            return value
+
+        with mock.patch.object(hooks, "_noted", noted):
+            self.assertIsNone(self.post())
+        self.assertEqual(len(looks), 3)
 
     def test_every_state_write_is_noted(self):
         for f in (ROOT / "scripts").rglob("*.py"):

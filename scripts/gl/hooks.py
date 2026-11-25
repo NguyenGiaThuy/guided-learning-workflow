@@ -234,9 +234,9 @@ def _lost_todos(data, target):
     if tool == "Write":
         after = tool_input.get("content")
         return scan.removed(text, after) if isinstance(after, str) else []
-    edits = tool_input.get("edits")
+    edits = tool_input.get("edits") if tool == "MultiEdit" else [tool_input]
     after = text
-    for edit in edits if isinstance(edits, list) else [tool_input]:
+    for edit in edits if isinstance(edits, list) else []:
         after = _replaced(after, edit)
         if after is None:
             return []
@@ -273,11 +273,9 @@ def _edit_from_outside(data, cwd):
     """An edit in a chat without a project: only a file of a game is guarded, all else is silent."""
     try:
         target = _edited_file(data, cwd)
-        if target is None or project.find(os.path.dirname(target)) is None:
-            return None
     except (HookError, OSError, ValueError, TypeError):
-        return None
-    return _refuse_edit(None, data, target)
+        return None   # no usable path; a project that cannot be read is an error, though
+    return _refuse_edit(None, data, target) if target else None
 
 
 # --- snapshots ---------------------------------------------------------------------------------------------
@@ -387,11 +385,11 @@ def _by_script(path, note):
     end = time.monotonic() + _NOTE_WAIT
     looks = 0
     while True:
+        writing = os.path.exists(str(path) + ".lock")   # first, so that it holds for the values read next
         current = _hash(path)
         if current is not None and current == _noted(note):
             return True
         looks += 1
-        writing = os.path.exists(str(path) + ".lock")
         if (looks > 1 and not writing) or time.monotonic() >= end:
             return False
         time.sleep(_NOTE_PAUSE)
@@ -400,7 +398,11 @@ def _by_script(path, note):
 def _changed(root, files, outer):
     """Names of the files that are not as in the snapshot, without the changes of the script."""
     before = {name: (f.get("hash"), f.get("note")) for name, f in files.items()}
-    for w in _watched(outer, tolerant=True) if outer else []:
+    try:
+        now = _watched(outer, tolerant=True) if outer else []
+    except Exception:   # the tool call left settings of a wrong type; the snapshot still tells what changed
+        now = []
+    for w in now:
         if w.note and w.home in files:   # a phase that was not there before, in a project watched before
             before.setdefault(w.name, (None, w.note))
     names = []
