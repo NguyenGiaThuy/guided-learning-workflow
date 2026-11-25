@@ -44,7 +44,7 @@ Open a new chat. In a project without guided learning the hooks do nothing, so y
 4. Type `/build-phase 1`. The AI writes the rest of the game, your scripts as shells with `TODO(owner 1.1)` comments, and tests for them that fail. At the end it hands over, and your scripts are locked against its edits. A phase may have several parts, each with its own build.
 5. Open a new chat and type `/summarize-phase 1`. You see what is done and what is next. Write your code in the editor. Ask for help when you want it, in four levels: a question, a pointer, more pseudo code, the solution in the chat. Remove the owner mark of a test when it passes. Close the chat whenever you like: the same command goes on from there.
 6. When your scripts are done, `/summarize-phase 1` goes on with the tuning. You change the numbers and say before each run what you expect. Then comes the wrap-up: you answer the questions in your own words, the AI names what is missing, and you write the lessons.
-7. Type `/finish-phase 1`. It lists what is open, or closes the phase and shows the closing text. Merge the branch, open a new chat and type `/start-phase 2`.
+7. Type `/finish-phase 1`. It lists what is open, or closes the phase and shows the closing text. Closing changes the two phase files (`phase-1.json` and `phase-1.md`), so commit them now. Merge the branch, open a new chat and type `/start-phase 2`.
 
 ## Rehearsal
 
@@ -66,7 +66,7 @@ You can try the whole workflow on a fake game, Lantern Keeper, before you use it
 
 ## Platforms
 
-Tested: Windows 11 with Git Bash, Python 3.14 and Claude Code 2.1.331, in print mode (`claude -p`). macOS, Linux and other versions were not tried.
+Tested: Windows 11 with Git Bash, Python 3.14 and Claude Code 2.1.331, in print mode (`claude -p`). macOS, Linux and other versions were not tried. Above all on macOS: whether an edit of a locked file is refused when its path is written in another mix of upper and lower case.
 
 Test results are read from NUnit 3 XML (Unity writes it), JUnit XML, or lines of `name,pass` and `name,fail`. So far only sample files were read, none of a real engine. Other AI tools than Claude Code do not work.
 

@@ -174,6 +174,24 @@ class RuleTests(unittest.TestCase):
         self.says("setup-learning", "absolute path")
 
 
+    def test_all_tests_are_run_and_recorded(self):
+        self.says("summarize-phase", "run ALL owner tests", "every suite", "One saved file makes all results old",
+                  "Before the first tweak", "Run and record every whole suite")
+        self.says("build-phase", "smoke test")
+
+    def test_the_phase_files_are_committed_before_the_merge(self):
+        self.says("finish-phase", "commit", "first", "before the closing text")
+        self.says("summarize-phase", "after `/finish-phase N`", "before the merge")
+
+    def test_missing_results_in_a_rehearsal_are_asked_for(self):
+        for name in ("build-phase", "summarize-phase"):
+            self.says(name, "if results are missing")
+        self.says("summarize-phase", "or old, ask the owner")
+
+    def test_where_notes_go(self):
+        self.says("summarize-phase", "Notes go there", "`log note`")
+
+
 class PlanExampleTests(unittest.TestCase):
     def test_the_plan_in_the_skill_has_every_key_the_check_wants(self):
         example = json.loads(re.search(r"```json\n(.*?)\n```", read("start-phase"), re.S).group(1))

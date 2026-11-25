@@ -579,6 +579,11 @@ class SimulationTests(Base):
             state.is_merged(self.found(), "y")
         self.assertTrue(git.called)
 
+    def test_tuning_leaves_the_code_alone_or_needs_new_results(self):
+        line = next(c for c in rehearsal.checklist() if c.id == "finish")
+        self.assertIn("without editing the code", line.type)
+        self.assertIn("`rehearse pass` again", line.type)
+
     def test_start_phase_stops_at_planning(self):
         self.active().update_state(2, lambda d: d.update(status="done", locked=[]))
         self.cli("rehearse", "merge")

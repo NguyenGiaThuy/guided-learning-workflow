@@ -6,6 +6,7 @@ First version.
 
 - Six commands: `/setup-learning`, `/start-phase`, `/approve-phase`, `/build-phase`, `/summarize-phase`, `/finish-phase`.
 - Hooks that check the commands, show the status line, refuse edits of locked files, notice changes by another route, and ask for the closing text.
+- A phase that is open on another branch is named there, and its scripts stay locked.
 - Records and test results through one script (NUnit 3, JUnit XML, or lines of `name,pass` and `name,fail`), and a scorecard per phase.
 - Rehearsal on a fake game, with a checklist and reports.
 - Unit tests and a runner for repeat runs with Claude Code.

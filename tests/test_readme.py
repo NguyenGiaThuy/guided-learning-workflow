@@ -40,6 +40,14 @@ class ReadmeTests(unittest.TestCase):
         for name in names:
             self.assertTrue((ROOT / name).exists(), name)
 
+    def test_the_phase_files_are_committed_before_the_merge(self):
+        step = re.search(r"(?m)^7\. .*$", read("README.md")).group(0)
+        self.assertLess(step.index("/finish-phase 1"), step.index("commit"))
+        self.assertLess(step.index("commit"), step.index("Merge"))
+
+    def test_what_was_not_tried_on_macos_is_named(self):
+        self.assertRegex(read("README.md"), r"macOS[^\n]*upper and lower case")
+
     def test_changelog_has_the_version(self):
         self.assertIn("## " + version.VERSION, read("CHANGELOG.md"))
 
