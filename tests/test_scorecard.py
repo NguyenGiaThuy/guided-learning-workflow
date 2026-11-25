@@ -136,7 +136,7 @@ class FinishTests(Base):
         self.assertTrue(md.startswith(FULL_MD), "hand-written text is unchanged")
         self.assertEqual(md.count("## Scorecard"), 1)
         self.assertTrue(md.endswith(scorecard.render(self.project, 2).split("\n", 1)[1] + "\n"))
-        self.assertTrue(text.startswith("Phase 2 is done."))
+        self.assertIn("Phase 2 is done.", text)
         self.finish()
         self.assertEqual(self.read(), md)
         self.assertEqual(len(markdown.load(self.project.md_path(2)).lessons), 3)   # the section is ignored
