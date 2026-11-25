@@ -621,3 +621,41 @@ def hooks_line(version, code, rehearsal, run, problem):
     inner = "REHEARSAL run %s, %s %s" % (run, version, code) if rehearsal else "%s %s" % (version, code)
     line = "Learning hooks: on (%s)" % inner
     return line + " - " + problem if problem else line
+
+
+# --- the scorecard and the done status -----------------------------------------------------------
+
+NOT_RATED = "not rated"
+NO_HELP = "none"
+SUMMARY_HEADING = "Concept summary:"
+LESSONS_HEADING = "Lessons:"
+SCORECARD_SECTION = "## Scorecard"
+
+
+def scorecard_heading(n):
+    return "Scorecard of phase %s" % n
+
+
+def score_build(passing, total, helps):
+    shown = ", ".join("%s %s" % (label, level or NO_HELP) for label, level in helps.items())
+    return "Build: %d/%d owner scripts pass their tests. Highest help level: %s." % (passing, total, shown or NO_HELP)
+
+
+def score_predict(right, total):
+    return "Predict: %d/%d tweaks had the right predicted direction." % (right, total)
+
+
+def score_balance(met, total):
+    return "Balance: %d/%d targets met." % (met, total)
+
+
+def score_explain(ratings):
+    return "Explain: " + "; ".join("%s: %s" % (name, rating) for name, rating in ratings.items()) + "."
+
+
+def score_process(surprised, differently):
+    return "Process: Surprised me: %s | Differently: %s" % (surprised or "-", differently or "-")
+
+
+def last_phase(value):
+    return "(last phase: %s)" % value

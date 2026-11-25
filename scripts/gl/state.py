@@ -76,6 +76,7 @@ class PhaseState:
         self.problems = []            # lost TODOs and missing files: shown even while building
         self.wrong_branch = None
         self.lost_todos = []          # "S.T" of planned TODOs that were never in their file
+        self.project = None           # the project it was worked out for
 
 
 # --- git (the one seam for the branch) ------------------------------------------------------
@@ -157,7 +158,7 @@ def is_merged(project, branch):
 
 # --- pieces of the computation ----------------------------------------------------------------
 
-def _outcome(project, data, planned, fresh):
+def outcome(project, data, planned, fresh):
     """"passed", "failed", "stale" (a result older than the code) or "none" for a planned test."""
     held = []
     for suite in project.settings.get("suites", []):
@@ -175,7 +176,7 @@ def _outcome(project, data, planned, fresh):
     return "passed" if all(o == "passed" for hits, _ in held for o in hits) else "failed"
 
 
-def _help_levels(log):
+def help_levels(log):
     levels = {}
     for e in log:
         if isinstance(e, dict) and e.get("kind") == "help" and isinstance(e.get("level"), int):
@@ -201,7 +202,7 @@ def _script(project, data, plan_script, handed, fresh, helped):
         sc.lost = missing
         return sc
     sc.todos_done = len(missing)
-    outcomes = {t: _outcome(project, data, t, fresh) for t in tests}
+    outcomes = {t: outcome(project, data, t, fresh) for t in tests}
     sc.tests_passed = sum(1 for o in outcomes.values() if o == "passed")
     sc.failing = [t for t, o in outcomes.items() if o == "failed"]
     sc.unrun = [t for t, o in outcomes.items() if o == "none"]
@@ -217,7 +218,7 @@ def _script(project, data, plan_script, handed, fresh, helped):
     return sc
 
 
-def _targets(plan, log):
+def targets_met(plan, log):
     """(count of met targets, ids that are neither met nor have a written reason)."""
     met, open_ = 0, []
     for t in plan.get("targets", []):
@@ -251,19 +252,19 @@ def suite_items(project, data, leave_out=()):
     return items
 
 
-def _log(data):
+def log_of(data):
     return [e for e in data.get("log", []) if isinstance(e, dict)] if isinstance(data.get("log"), list) else []
 
 
-def _ratings(data):
+def ratings(data):
     """{concept id: its last rating}"""
-    return {str(e.get("concept")): e.get("rating") for e in _log(data) if e.get("kind") == "rating"}
+    return {str(e.get("concept")): e.get("rating") for e in log_of(data) if e.get("kind") == "rating"}
 
 
 def _wrap_items(project, n, plan, data):
     """What the wrap-up still needs: answers, ratings, concept summary, lessons, process."""
     md = markdown.load(project.md_path(n))
-    rated = _ratings(data)
+    rated = ratings(data)
     concepts = [(str(c.get("id")), c.get("name", "")) for c in plan.get("concepts", [])]
     asked = [(str(q.get("concept")), q.get("id")) for q in plan.get("questions", [])]
     items = [texts.answer_missing(name) for cid, name in concepts
@@ -283,7 +284,7 @@ def _wrap_items(project, n, plan, data):
 def carry_over(project, n):
     """(names of the weak concepts, the "Differently" text) of phase n, for the phase after it."""
     plan, data = store.read(project.plan_path(n)), store.read(project.state_path(n))
-    rated = _ratings(data)
+    rated = ratings(data)
     weak = [c.get("name", "") for c in plan.get("concepts", []) if rated.get(str(c.get("id"))) == texts.WITH_HELP]
     return weak, markdown.load(project.md_path(n)).differently
 
@@ -318,6 +319,7 @@ def compute(project, n):
     data = store.read(project.state_path(n))
     plan = store.read(project.plan_path(n))
     st = PhaseState(n)
+    st.project = project
     st.status = data.get("status") or "planning"
     st.branch = data.get("branch") or None
     if isinstance(data.get("skip"), str):
@@ -334,7 +336,7 @@ def compute(project, n):
 
 
 def _build(project, st, data, plan):
-    log = _log(data)
+    log = log_of(data)
     plan_scripts = plan.get("scripts", [])
     parts = plan.get("parts") or [{"name": "", "scripts": [s.get("id") for s in plan_scripts]}]
     part = data.get("part") if isinstance(data.get("part"), int) else 0
@@ -344,7 +346,7 @@ def _build(project, st, data, plan):
     handed_ids = {str(i) for p in handed_parts for i in parts[p].get("scripts") or []}
 
     fresh = {s: results.fresh(project, data, s) for s in project.settings.get("suites", [])}
-    helped = _help_levels(log)
+    helped = help_levels(log)
     if len(handed_parts) == len(parts):   # a script in no part is reachable once all parts are handed over
         listed = {str(i) for p in parts for i in p.get("scripts") or []}
         handed_ids |= {str(s.get("id")) for s in plan_scripts if str(s.get("id")) not in listed}
@@ -366,7 +368,7 @@ def _build(project, st, data, plan):
             st.next_todo = s.todos_left[0] if s.todos_left else None
             break
     st.targets_total = len(plan.get("targets", []))
-    st.targets_met, st.targets_open = _targets(plan, log)
+    st.targets_met, st.targets_open = targets_met(plan, log)
 
     if not plan_scripts and not plan.get("parts"):
         item = texts.plan_missing(project.plan_path(st.n).name)

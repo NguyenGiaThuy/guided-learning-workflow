@@ -1,5 +1,5 @@
 """Turn a PhaseState into the text the owner reads."""
-from . import store, texts, version
+from . import markdown, scorecard, store, texts, version
 
 
 def _rows(st):
@@ -65,6 +65,16 @@ def next_line(st):
     return texts.next_line(*next_command(st))
 
 
+def _kept(st):
+    """The concept summary and the lessons the owner wrote, for a done phase."""
+    md = markdown.load(st.project.md_path(st.n))
+    plan = store.read(st.project.plan_path(st.n))
+    lines = [texts.SUMMARY_HEADING]
+    for c in plan.get("concepts", []):
+        lines += [c.get("name", ""), md.summary(c.get("name", ""))]
+    return lines + [texts.LESSONS_HEADING] + [texts.bullet(x) for x in md.lessons]
+
+
 def status(st):
     """The status of a phase, ending with the next command."""
     n = st.n
@@ -75,7 +85,7 @@ def status(st):
     if st.status == "planning":
         lines = [texts.phase_header(n, "planning"), texts.planning_text(n)]
     elif st.status == "done":
-        lines = [texts.phase_header(n, "done"), texts.done_text(n)]
+        lines = [texts.phase_header(n, "done"), texts.done_text(n)] + _kept(st) + [scorecard.render(st.project, n)]
     elif st.status == "skipped":
         lines = [texts.phase_header(n, "skipped"), texts.skipped_text(n, st.skip_reason)]
     else:
@@ -90,6 +100,8 @@ def status(st):
             items = [i for i in st.open_items if i not in shown]
             if items:
                 lines += [texts.open_heading()] + [texts.bullet(i) for i in items]
+            elif st.status == "wrap-up":
+                lines.append(scorecard.render(st.project, n))
     lines.append(next_line(st))
     return "\n".join(lines) + "\n"
 

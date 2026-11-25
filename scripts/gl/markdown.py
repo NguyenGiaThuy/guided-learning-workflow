@@ -40,8 +40,10 @@ def _sections(text):
         level = len(heading.group(1)) if heading else 9
         if level <= 2:
             section, sub = _key(heading.group(2)) if level == 2 else "", ""
+            found.setdefault((section, sub), [])   # an empty section is still there
         elif level == 3:
             sub = _key(heading.group(2))
+            found.setdefault((section, sub), [])
         else:
             found.setdefault((section, sub), []).append(line)
     return found
@@ -73,6 +75,9 @@ class PhaseFile:
         process = _process(self._sections.get(("process", ""), []))
         self.surprised = process.get("surprised me", "")
         self.differently = process.get("differently", "")
+
+    def has_section(self, name):
+        return (_key(name), "") in self._sections
 
     def answer(self, question):
         return _filled(self._sections.get(("answers", _key(question)), []))
