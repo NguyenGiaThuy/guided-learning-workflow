@@ -829,6 +829,15 @@ def setup_lines_added(name, lines):
     return "Added to %s: %s" % (name, ", ".join(lines))
 
 
+SETUP_IGNORED = ("Git ignores .claude/learning/project.json because of a line in .gitignore, so the settings would not "
+                 "be saved with the game. Change that line. With .claude/ for example: write .claude/* and below it "
+                 "!.claude/learning/")
+
+
+def settings_wrong(file, problems):
+    return "%s cannot be used. The owner mends it by hand: %s" % (file, " ".join(problems))
+
+
 def setup_no_folder(folder):
     return "The code folder %s does not exist yet. Check that its name is right." % folder
 

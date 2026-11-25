@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 import helpers
-from gl import project, store
+from gl import project, render, store, texts
 
 
 class ProjectTests(unittest.TestCase):
@@ -98,6 +98,54 @@ class ProjectTests(unittest.TestCase):
         with self.assertRaises(store.BadJson) as cm:
             project.find(self.root)
         self.assertIn("project.json", str(cm.exception))
+
+    BAD = {"docs": ["Docs", 5, "", "../x"], "code": ["src", [], [5], ["../src"]], "extensions": [".cs", ["cs"]],
+           "ownerMark": ["", 5], "suites": ["Unit", []], "background": [None]}
+
+    def test_wrong_settings_are_an_error_that_names_file_and_key(self):
+        pj = self.root / ".claude" / "learning" / "project.json"
+        for key, values in self.BAD.items():
+            for value in values:
+                if (key, value) == ("docs", "Docs"):
+                    continue
+                helpers.write_json(pj, dict(helpers.PROJECT_JSON, **{key: value}))
+                with self.assertRaises(store.BadJson) as cm:
+                    project.find(self.root)
+                self.assertIn("project.json", str(cm.exception), (key, value))
+                self.assertIn(texts.setup_key(key, True), str(cm.exception), (key, value))
+        for data in ({}, {k: v for k, v in helpers.PROJECT_JSON.items() if k != "code"}):
+            helpers.write_json(pj, data)
+            with self.assertRaises(store.BadJson) as cm:
+                project.find(self.root)
+            self.assertIn(texts.setup_key("code", False), str(cm.exception))
+        helpers.write_json(pj, dict(helpers.PROJECT_JSON, codes=["src"]))
+        with self.assertRaises(store.BadJson) as cm:
+            project.find(self.root)
+        self.assertIn(texts.setup_unknown("codes"), str(cm.exception))
+
+    def test_wrong_settings_of_the_rehearsal_are_an_error(self):
+        helpers.set_switch(self.root, '{"rehearsal": true}')
+        reh = self.root / ".claude" / "learning" / "rehearsal"
+        helpers.make_project(reh)
+        helpers.write_json(reh / ".claude" / "learning" / "project.json", dict(helpers.PROJECT_JSON, code="src"))
+        found = project.find(self.root)
+        with self.assertRaises(store.BadJson):
+            found.active
+
+    def test_a_missing_code_folder_is_in_the_status_line(self):
+        self.assertNotIn("does not exist", render.one_line(project.find(self.root)))
+        pj = self.root / ".claude" / "learning" / "project.json"
+        helpers.write_json(pj, dict(helpers.PROJECT_JSON, code=["src", "Src2", "game/code"]))
+        line = render.one_line(project.find(self.root))
+        self.assertTrue(line.startswith("Learning hooks: on ("), line)
+        for folder in ("Src2", "game/code"):
+            self.assertIn(texts.setup_no_folder(folder), line)
+        self.assertNotIn(texts.setup_no_folder("src"), line)
+        self.assertNotIn("\n", line)
+        helpers.set_switch(self.root, "{")
+        line = render.one_line(project.find(self.root))
+        self.assertIn("config.json", line)
+        self.assertIn(texts.setup_no_folder("Src2"), line)
 
 
 if __name__ == "__main__":

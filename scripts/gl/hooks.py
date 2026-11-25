@@ -453,7 +453,7 @@ def _post_tool_use_failure(found, data, cwd):
 
 
 def _report_lost_project(event, data, cwd):
-    """project.json is gone, but a snapshot of this very tool call shows that it was there."""
+    """project.json is gone or broken, but a snapshot of this very tool call shows what was there."""
     folder = Path(os.path.realpath(cwd))
     for d in [folder] + list(folder.parents):
         path = _snapshot_path(d, data.get("tool_use_id"))
@@ -580,7 +580,13 @@ def handle(event, data, cwd):
     if event not in _HANDLERS:
         return None
     try:
-        found = project.find(cwd)
+        try:
+            found = project.find(cwd)
+        except store.BadJson:
+            reported = _outside(event, data, cwd) if event in POST_EVENTS else None
+            if reported is None:
+                raise
+            return reported   # the tool call broke project.json, and the snapshot tells what else it changed
         if found is None:
             return _outside(event, data, cwd)
         rehearsal.sync(found)

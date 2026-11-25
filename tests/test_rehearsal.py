@@ -430,7 +430,11 @@ class SafetyTests(Base):
             kept.write_text("real", encoding="utf-8")
             helpers.write_json(self.root / LEARNING / "project.json", dict(helpers.PROJECT_JSON, **settings))
             self.switch(ON)
-            self.refused()
+            if "docs" in settings:
+                with self.assertRaises(project.BadSettings):   # such a setting is refused before that
+                    self.look()
+            else:
+                self.refused()
             self.assertEqual(kept.read_text(encoding="utf-8"), "real")
 
     def test_real_code_linked_into_it_is_refused(self):

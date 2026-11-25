@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -535,6 +536,14 @@ class SnapshotTests(Base):
             (self.root / ".claude" / "learning" / "project.json").write_bytes(text)
             self.reported(self.post(), ".claude/learning/project.json", "src/Moth.cs")
 
+    def test_broken_project_json_does_not_lose_the_report(self):
+        self.make()
+        self.pre("Bash")
+        self.append("src/Moth.cs")
+        (self.root / ".claude" / "learning" / "project.json").write_bytes(b"{")
+        self.reported(self.post(), ".claude/learning/project.json", "src/Moth.cs")
+        self.assertIn("guided-learning error: ", self.post()["systemMessage"])
+
     def test_failed_tool_is_reported_in_its_own_form(self):
         self.make()
         self.pre("Bash")
@@ -727,6 +736,8 @@ class ErrorTests(Base):
         yield lambda: pj.write_bytes(b'{"docs": "x",\n}'), "project.json"
         yield lambda: pj.write_bytes(b"\xff\xfe"), "project.json"
         yield lambda: pj.write_bytes(b"[]"), "project.json"
+        yield lambda: helpers.write_json(pj, dict(helpers.PROJECT_JSON, code="src")), '"code"'
+        yield lambda: helpers.write_json(pj, {}), '"docs"'
 
     def test_exception_denies(self):
         for break_, word in self.breaks():
@@ -938,6 +949,15 @@ class EndToEndTests(Base):
             self.assertEqual(self.hook(event, {"cwd": str(self.tmp)}), "")
         self.assertEqual(self.hook("PreToolUse", None, raw=b"{"), "")
         self.assertEqual(self.files(), before)
+
+    def test_wrong_settings_deny_on_the_command_line_too(self):
+        self.make()
+        helpers.write_json(self.root / ".claude" / "learning" / "project.json", dict(helpers.PROJECT_JSON, code="src"))
+        done = subprocess.run([sys.executable, str(ROOT / "scripts" / "learning.py"), "status"], cwd=str(self.root),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
+        self.assertEqual((done.returncode, done.stderr), (1, b""))
+        self.assertIn("project.json", done.stdout.decode("utf-8"))
+        self.assertIn(texts.setup_key("code", True), done.stdout.decode("utf-8"))
 
     def test_edit_shell_and_prompt(self):
         self.make()

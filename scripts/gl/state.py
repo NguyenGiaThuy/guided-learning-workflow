@@ -217,6 +217,12 @@ def is_merged(project, branch):
     return name is None or name == branch or any(_is_ancestor(project, ref, r) for r in refs)
 
 
+def is_ignored(project, path):
+    """True if git is there and a .gitignore hides the file from it."""
+    found = _git(project, "check-ignore", "-q", "--", path)
+    return found is not None and found[0] == 0
+
+
 # --- pieces of the computation ----------------------------------------------------------------
 
 def outcome(project, data, planned, fresh):

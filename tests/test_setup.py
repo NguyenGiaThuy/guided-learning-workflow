@@ -142,6 +142,28 @@ class ApplyTests(Base):
         self.assertNotIn(texts.setup_no_folder("src"), done)
         self.assertIn(texts.setup_no_folder("game/src"), done)
 
+    def git(self, *args):
+        try:
+            subprocess.run(["git", "-C", str(self.root), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+                           + list(args), check=True, capture_output=True)
+        except (OSError, subprocess.CalledProcessError):
+            self.skipTest("git is not available")
+
+    def test_a_gitignore_that_hides_the_settings_is_named(self):
+        self.git("init", "-q")
+        self.put(".gitignore", b"*.log\n")
+        self.assertNotIn(texts.SETUP_IGNORED, self.apply())
+        for text in (b".claude/\n", b"project.json\n", b".claude/*\n"):
+            self.put(".gitignore", text)
+            self.assertIn(texts.SETUP_IGNORED, self.apply(), text)
+        self.put(".gitignore", b".claude/*\n!.claude/learning/\n")
+        self.assertNotIn(texts.SETUP_IGNORED, self.apply())
+
+    def test_without_git_nothing_is_said_about_it(self):
+        self.put(".gitignore", b".claude/\n")
+        with mock.patch("subprocess.run", side_effect=FileNotFoundError):
+            self.assertNotIn(texts.SETUP_IGNORED, self.apply())
+
     def test_project_json_is_written_last(self):
         written = []
         real = store.write_text

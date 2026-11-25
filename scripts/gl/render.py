@@ -118,5 +118,7 @@ def run_number(project):
 
 def one_line(project):
     """The status line for SessionStart. `project` is the outer (real) project."""
+    problems = ([project.problem] if project.problem else [])
+    problems += [texts.setup_no_folder(d) for d in project.missing_code_dirs]
     return texts.hooks_line(version.VERSION, version.plugin_hash(), project.rehearsal,
-                            run_number(project) if project.rehearsal else None, project.problem)
+                            run_number(project) if project.rehearsal else None, " ".join(problems))

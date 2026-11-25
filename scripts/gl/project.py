@@ -2,9 +2,18 @@
 import os
 from pathlib import Path
 
+from . import settings as checks
 from . import store, texts
 
 LEARNING = Path(".claude") / "learning"
+
+
+class BadSettings(store.BadJson):
+    """A project.json that is valid JSON, but cannot be used. Like broken JSON, it must not switch
+    the protection off silently."""
+
+    def __init__(self, file, problems):
+        super().__init__(file, 1, texts.settings_wrong(file, problems))
 
 
 def norm(path):
@@ -41,6 +50,14 @@ def _read_switch(root):
     return data["rehearsal"], None
 
 
+def _read_settings(path):
+    data = store.read(path)
+    problems = checks.problems(data)
+    if problems:
+        raise BadSettings(path, problems)
+    return data
+
+
 class Project:
     def __init__(self, root, settings, rehearsal=False, problem=None):
         self.root = Path(root)
@@ -55,7 +72,7 @@ class Project:
             return self
         folder = self.rehearsal_folder
         pj = folder / LEARNING / "project.json"
-        return Project(folder, store.read(pj))
+        return Project(folder, _read_settings(pj) if pj.is_file() else {})
 
     @property
     def rehearsal_folder(self):
@@ -73,6 +90,11 @@ class Project:
     @property
     def code_dirs(self):
         return [self.root / d for d in self.settings.get("code", [])]
+
+    @property
+    def missing_code_dirs(self):
+        """The code folders of project.json that do not exist."""
+        return [d for d in self.settings.get("code", []) if not (self.root / d).is_dir()]
 
     def phase_numbers(self):
         nums = []
@@ -119,12 +141,12 @@ def find(cwd):
     """Walk up from cwd to a folder with .claude/learning/project.json; None if there is none.
 
     A rehearsal folder is skipped, so a cwd inside it yields the real parent project.
-    Raises store.BadJson if project.json is broken.
+    Raises store.BadJson if project.json is broken or its settings cannot be used.
     """
     folder = Path(os.path.realpath(cwd))
     for d in [folder] + list(folder.parents):
         pj = d / LEARNING / "project.json"
         if pj.is_file() and not is_rehearsal_folder(d):
             rehearsal, problem = _read_switch(d)
-            return Project(d, store.read(pj), rehearsal, problem)
+            return Project(d, _read_settings(pj), rehearsal, problem)
     return None
