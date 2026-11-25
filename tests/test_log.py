@@ -10,6 +10,7 @@ from pathlib import Path
 import helpers
 from helpers import FULL_MD, TEST_CODE, TWO_PARTS, full_plan, shell
 from gl import log, project, results, state, store, texts
+from test_hooks import BASH, RUN_SH
 
 LEARNING = Path(__file__).resolve().parent.parent / "scripts" / "learning.py"
 
@@ -160,10 +161,10 @@ class LogTests(Base):
 
 
 class CliTests(Base):
-    def cli(self, *args, cwd=None):
+    def cli(self, *args, cwd=None, given=b""):
         env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(self.tmp.parent), PYTHONIOENCODING="cp1252")
         done = subprocess.run([sys.executable, str(LEARNING)] + list(args), cwd=str(cwd or self.tmp), env=env,
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, input=given)
         self.assertEqual(done.stderr, b"")
         return done.returncode, done.stdout.decode("utf-8")
 
@@ -228,6 +229,35 @@ class CliTests(Base):
             self.assertEqual(code, 1, args)
             self.assertTrue(out.strip())
         self.assertEqual(len(self.data()["log"]), 2)
+
+    OWN_WORDS = "the `Moth.speed` costs $5, \"too\" much: it's $HOME \\n \u00fc\u2713"
+
+    def test_a_field_is_read_from_stdin(self):
+        self.make()
+        for end in ("\n", "\r\n", ""):
+            code, out = self.cli("log", "reason", "target=wins", "text=-", "phase=2",
+                                 given=(self.OWN_WORDS + end).encode("utf-8"))
+            self.assertEqual((code, self.data()["log"][-1]["text"]), (0, self.OWN_WORDS), out)
+        code, out = self.cli("log", "tweak", "change=-", "predicted=up", "target=wins", "before=40", "after=45",
+                             given="one\ntwo\n".encode("utf-8"))
+        self.assertEqual((code, self.data()["log"][-1]["change"]), (0, "one\ntwo"), out)
+
+    def test_bad_stdin_is_refused(self):
+        self.make()
+        for args, given in ((("tweak", "change=-", "predicted=-", "target=wins", "before=1", "after=2"), b"up"),
+                            (("note", "text=-"), b""), (("note", "text=-"), b"\n"), (("note", "text=-"), b"\xff\xfe")):
+            code, out = self.cli("log", *args, given=given)
+            self.assertEqual(code, 1, args)
+            self.assertNotIn("Error", out)
+        self.assertNotIn("log", self.data())
+
+    @unittest.skipUnless(BASH, "bash not available")
+    def test_the_heredoc_of_the_skill_keeps_the_words(self):
+        self.make()
+        line = "bash \"%s\" log reason target=wins text=- phase=2 <<'END'\n%s\nEND\n" % (RUN_SH, self.OWN_WORDS)
+        done = subprocess.run([BASH, "-s"], input=line.encode("utf-8"), cwd=str(self.tmp), stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, timeout=60)
+        self.assertEqual((done.returncode, self.data()["log"][-1]["text"]), (0, self.OWN_WORDS), done.stderr)
 
     def test_record_tests(self):
         self.make()

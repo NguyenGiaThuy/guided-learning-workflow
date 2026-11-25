@@ -168,7 +168,8 @@ class ApplyTests(Base):
 
 class ValidationTests(Base):
     BAD = {
-        "docs": ["", " ", None, 3, "/etc", "C:/x", "../x", "a/../../x", "a\\b", "~/x", ".", "a//b", " a"],
+        "docs": [".claude", ".claude/learning", ".Claude/docs", "", " ", None, 3, "/etc",
+                 "C:/x", "../x", "a/../../x", "a\\b", "~/x", ".", "a//b", " a"],
         "code": ["src", [], [""], [1], None, ["/src"], ["../src"], ["src", "C:\\src"], ["src\\game"]],
         "extensions": [".cs", [], ["cs"], ["*.cs"], ["."], [1], None, [". cs"]],
         "ownerMark": ["", "  ", None, 1, "two\nlines"],
@@ -199,6 +200,13 @@ class ValidationTests(Base):
     def test_docs_that_is_a_file_is_refused(self):
         self.put("Docs", b"x")
         self.assertIn("Docs", self.refused(PROJECT_JSON))
+
+    def test_a_file_in_the_way_of_the_learning_folder_is_refused(self):
+        for rel in (".claude", ".claude/learning"):
+            with self.subTest(rel):
+                self.put(rel, b"x")
+                self.assertIn(rel, self.refused(PROJECT_JSON))
+                (self.root / rel).unlink()
 
     def test_a_text_file_that_is_not_utf8_is_refused(self):
         for name in (".gitignore", "CLAUDE.md"):
@@ -252,6 +260,14 @@ class CliTests(Base):
         helpers.make_project(self.root, {2: {"state": {"status": "planning"}}})
         code, out = self.cli(self.settings())
         self.assertEqual((code, out.rstrip("\n").split("\n")[-1]), (0, texts.next_line("approve-phase", 2)))
+
+    def test_a_next_command_that_fails_does_not_hide_what_was_done(self):
+        helpers.make_project(self.root, {1: {"state": {}}})
+        (self.root / "Docs/learning/phase-1.json").write_bytes(b"{")
+        code, out = self.cli(self.settings())
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out.split("\n")[0], texts.setup_written("Docs/learning/README.md"))
+        self.assertNotIn("Next:", out)
 
     def test_bad_settings_and_bad_calls_write_nothing(self):
         bad = self.tmp / "bad.json"

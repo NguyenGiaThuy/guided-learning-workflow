@@ -9,12 +9,14 @@ A hook has already checked this command and made the files. Its text is in your 
 
 If there is no such text, guided learning is not set up here, or its hooks do not run. Say that `/setup-learning` comes first, and stop.
 
-Plan the phase with the owner. Write only `phase-N.plan.json` and `phase-N.md`, in the folder the hook names. Write no code. Do not edit `phase-N.json`.
+Plan the phase with the owner. Write only `phase-N.plan.json` and `phase-N.md`, in the folder the hook names, and, with Superpowers, its design and plan documents, outside of the code folders. Write no code. Do not edit `phase-N.json`.
+
+Read the plan and `phase-N.md` first: the planning may have begun in another chat. Keep what is there, and go on with the first block that is missing.
 
 ## Talk first
 
 - Read the design of the game, *Notes for later* of the phases before, and the carried items. Give each carried item a place in this phase, or agree to drop it.
-- Ask what the phase should do and which concepts the owner wants to learn. Agree on each block of the plan before the next one.
+- Ask what the phase should do and which concepts the owner wants to learn. Agree on each block of the plan before the next one. Save each block as soon as it is agreed.
 - Propose a branch for the phase, in the project folder and without a worktree. The owner creates it or agrees that you do. It must be checked out before the approval.
 
 ## The plan

@@ -43,6 +43,19 @@ def _fields(args):
     return found
 
 
+def _from_input(fields):
+    """Replace a value "-" by the text of stdin, so that the owner's words do not pass through a shell."""
+    names = [k for k, v in fields.items() if v == "-"]
+    if len(names) > 1:
+        raise Refused(texts.log_one_stdin(names))
+    for name in names:
+        try:
+            text = sys.stdin.buffer.read().decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raise Refused(texts.log_stdin_not_utf8(name))
+        fields[name] = text[:-1].rstrip("\r") if text.endswith("\n") else text
+
+
 def _status(args):
     if project.find(os.getcwd()) is None:   # no error: a failed `!` command keeps the AI from seeing the text
         return True, texts.NO_PROJECT
@@ -59,6 +72,7 @@ def _log(args):
     target = _project()
     fields = _fields(args[1:])
     n = _phase(fields.pop("phase", ""), "log")
+    _from_input(fields)
     return True, log.add(target, n, args[0], **fields)
 
 
@@ -91,7 +105,11 @@ def _setup(args):
     if found and project.norm(found.root) != project.norm(root):
         raise Refused(texts.setup_elsewhere(found.root))
     done = setup.apply(root, store.read(paths[0]), claudeMd=SETUP_FLAG in args)
-    return True, "\n".join(done + [commands.suggestion(_project())])
+    try:
+        done.append(commands.suggestion(_project()))
+    except Exception:   # a broken phase file must not hide what was written; its own command reports it
+        pass
+    return True, "\n".join(done)
 
 
 def _version(args):

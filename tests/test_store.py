@@ -1,5 +1,6 @@
 import os
 import shutil
+import stat
 import tempfile
 import threading
 import time
@@ -57,6 +58,50 @@ class StoreTests(unittest.TestCase):
             store.write(p, {"bad": object()})
         self.assertEqual(store.read(p), {"ok": 1})
         self.assertEqual([f.name for f in self.tmp.iterdir()], ["d.json"])
+
+    def test_a_folder_without_permission_is_an_error_and_no_hang(self):
+        p = self.tmp / "d.json"
+        store.write(p, {"ok": 1})
+        real_open, end = os.open, time.monotonic() + 8
+
+        def refuse(path, flags, *more, **kw):
+            if not flags & os.O_CREAT:
+                return real_open(path, flags, *more, **kw)
+            if time.monotonic() > end:
+                raise AssertionError("it still tries")
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+
+        for write, content in ((store.write, {"ok": 2}), (store.write_text, "new")):
+            start = time.monotonic()
+            with mock.patch.object(os, "open", refuse):
+                with self.assertRaises(PermissionError):
+                    write(p, content)
+            self.assertLess(time.monotonic() - start, 4)
+        self.assertEqual(store.read(p), {"ok": 1})
+        self.assertEqual([f.name for f in self.tmp.iterdir()], ["d.json"])
+
+    def test_a_short_permission_error_is_retried(self):
+        real_open, calls = os.open, []
+
+        def refuse_twice(path, flags, *more, **kw):
+            calls.append(path)
+            if len(calls) <= 2:
+                raise PermissionError(13, "Permission denied", os.fspath(path))
+            return real_open(path, flags, *more, **kw)
+
+        with mock.patch.object(os, "open", refuse_twice):
+            store.write_text(self.tmp / "e.txt", "x\n")
+        self.assertEqual((self.tmp / "e.txt").read_bytes(), b"x\n")
+        self.assertEqual(len(calls), 3)
+
+    @unittest.skipUnless(os.name == "posix", "modes of POSIX")
+    def test_a_written_file_has_the_usual_mode(self):
+        old = os.umask(0o022)
+        try:
+            store.write_text(self.tmp / "e.txt", "x")
+        finally:
+            os.umask(old)
+        self.assertEqual(stat.S_IMODE(os.stat(self.tmp / "e.txt").st_mode), 0o644)
 
     def test_file_hash_ignores_crlf(self):
         a, b = self.tmp / "a.txt", self.tmp / "b.txt"

@@ -33,6 +33,10 @@ def _folder(value):
     return not any(part in ("", ".", "..") for part in re.sub("/$", "", value).split("/"))
 
 
+def _docs_folder(value):
+    return _folder(value) and value.split("/")[0].casefold() != ".claude"
+
+
 def _code_folder(value):
     return value == "." or _folder(value)
 
@@ -45,7 +49,7 @@ def _text(value):
     return isinstance(value, str) and bool(value.strip())
 
 
-_CHECKS = {"docs": _folder, "code": _list_of(_code_folder), "extensions": _list_of(_extension),
+_CHECKS = {"docs": _docs_folder, "code": _list_of(_code_folder), "extensions": _list_of(_extension),
            "ownerMark": _line, "suites": _list_of(_line), "background": _text}
 
 
@@ -61,12 +65,12 @@ def _check(settings, name):
         raise SetupError("\n".join([texts.setup_refused(name)] + [texts.bullet(p) for p in found]))
 
 
-def _check_docs(root, docs):
+def _check_folder(root, folder):
     path = root
-    for part in docs.rstrip("/").split("/"):
+    for part in folder.rstrip("/").split("/"):
         path = path / part
         if path.exists() and not path.is_dir():
-            raise SetupError(texts.setup_not_a_folder(docs))
+            raise SetupError(texts.setup_not_a_folder(folder))
 
 
 # --- the text files -----------------------------------------------------------------------------
@@ -126,7 +130,8 @@ def apply(root, settings, claudeMd=False):
     if existing:
         settings = store.read(root / PROJECT)
         _check(settings, PROJECT)
-    _check_docs(root, settings["docs"])
+    _check_folder(root, LEARNING.as_posix())
+    _check_folder(root, settings["docs"])
     writes, done = [], []
 
     def create(rel, write, content):

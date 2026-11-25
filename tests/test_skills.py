@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 import helpers
+import learning
 from gl import hooks, log, texts
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -12,6 +13,7 @@ SKILLS = ROOT / "skills"
 WITH_STATUS = ("build-phase", "summarize-phase")
 STATUS_LINE = '!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" status $ARGUMENTS`'
 RUN = 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" '
+FREE_TEXT = ("change", "text")   # fields with the owner's words
 
 
 def read(name):
@@ -28,68 +30,143 @@ def frontmatter(text):
     return found
 
 
+def code(text):
+    """The commands of a skill: code spans, and the lines of code blocks."""
+    body = text.split("\n---\n", 1)[1]
+    blocks = re.findall(r"(?ms)^```[a-z]*\n(.*?)^```", body)
+    spans = re.findall(r"`([^`\n]+)`", re.sub(r"(?ms)^```.*?^```", "", body))
+    return spans + [line for b in blocks for line in b.split("\n")]
+
+
+def calls(text):
+    """The calls of the script in a skill, with or without run.sh in front, as lists of words."""
+    found = []
+    for c in code(text):
+        if c.startswith(RUN):
+            found.append(c[len(RUN):].split())
+        elif re.match(r"(log|record|hand|setup|status|version|hook)(-[a-z]+)?( |$)", c):
+            found.append(c.split())
+    return found
+
+
 class SkillTests(unittest.TestCase):
-    def each(self):
+    def each(self, check):
         for name in texts.COMMANDS:
             with self.subTest(name):
-                yield name, read(name)
+                check(name, read(name))
 
     def test_one_skill_per_command(self):
         self.assertEqual({p.parent.name for p in SKILLS.glob("*/SKILL.md")}, set(texts.COMMANDS))
 
     def test_descriptions_and_hints_match(self):
-        for name, text in self.each():
+        def check(name, text):
             head = frontmatter(text)
             _, hint, description = texts.COMMANDS[name]
             self.assertEqual(head["name"], name)
             self.assertEqual(head["description"], description)
             self.assertEqual(head.get("argument-hint", ""), hint)
             self.assertEqual("argument-hint" in head, bool(hint))
+        self.each(check)
 
     def test_hints_are_text_and_no_yaml_list(self):
-        for name, text in self.each():
+        def check(name, text):
             for line in re.findall(r"(?m)^(?:description|argument-hint): .*$", text):
                 self.assertRegex(line, r'^[a-z-]+: ".*"$')
+        self.each(check)
 
     def test_all_are_owner_only(self):
-        for name, text in self.each():
-            self.assertEqual(frontmatter(text).get("disable-model-invocation"), "true")
+        self.each(lambda name, text: self.assertEqual(frontmatter(text).get("disable-model-invocation"), "true"))
 
     def test_at_most_80_lines_and_lf(self):
-        for name, text in self.each():
+        def check(name, text):
             self.assertLessEqual(len(text.splitlines()), 80)
             self.assertNotIn("\r", text)
+        self.each(check)
 
     def test_status_is_inserted_where_the_phase_goes_on(self):
-        for name, text in self.each():
+        def check(name, text):
             self.assertEqual(text.split("\n").count(STATUS_LINE), int(name in WITH_STATUS))
             self.assertEqual(text.count("!`"), int(name in WITH_STATUS))
             allowed = frontmatter(text).get("allowed-tools", "")
             self.assertEqual("Bash(bash *run.sh* status*)" in allowed, name in WITH_STATUS)
+        self.each(check)
 
     def test_a_missing_project_names_setup(self):
-        for name, text in self.each():
-            if name != "setup-learning":
-                self.assertIn("/setup-learning", text)
+        self.each(lambda name, text: self.assertIn("/setup-learning", text + "/" + name))
 
     def test_script_calls_exist(self):
-        for name, text in self.each():
-            for call in re.findall(re.escape(RUN) + r"([a-z-]+)", text):
-                self.assertIn(call, {"status", "log", "record-tests", "hand-over", "setup"})
+        counted = []
+
+        def check(name, text):
+            for words in calls(text):
+                self.assertIn(words[0], learning.SUBCOMMANDS)
+                counted.append(words[0])
+        self.each(check)
+        self.assertGreaterEqual(set(counted), {"status", "log", "record-tests", "hand-over", "setup"})
 
     def test_records_have_the_fields_of_the_log(self):
         kinds = set()
-        for name, text in self.each():
-            for kind, fields in re.findall(r"\blog ([a-z]+) ([a-z]+=[^`\n]*)`", text):
-                names = [f for f in re.findall(r"\b([a-z]+)=", fields) if f != "phase"]
-                self.assertEqual(tuple(names), log.FIELDS[kind], kind)
-                kinds.add(kind)
+
+        def check(name, text):
+            for words in calls(text):
+                names = re.findall(r"\b([a-z]+)=", " ".join(words[2:]))
+                if words[0] == "log" and names:
+                    self.assertEqual(tuple(n for n in names if n != "phase"), log.FIELDS[words[1]], words[1])
+                    kinds.add(words[1])
+        self.each(check)
         self.assertEqual(kinds, set(log.FIELDS) - {"note"})   # notes go to phase-N.md
 
+    def test_the_owners_words_never_pass_through_the_shell(self):
+        def check(name, text):
+            for line in code(text):
+                fields = re.findall(r"\b(%s)=(\S+)" % "|".join(FREE_TEXT), line)
+                self.assertEqual([v for _, v in fields], ["-"] * len(fields), line)
+                self.assertEqual("<<" in line, bool(fields), line)
+                if fields:
+                    self.assertTrue(line.endswith("<<'END'"), line)
+            for block in re.findall(r"(?ms)^```[a-z]*\n(.*?)^```", text):
+                self.assertEqual(block.count("<<'END'"), len(re.findall(r"(?m)^END$", block)))
+        self.each(check)
+
     def test_commands_named_exist(self):
-        for name, text in self.each():
+        def check(name, text):
             for command in re.findall(r"(?<![\w/])/([a-z]+-(?:phase|learning))\b", text):
                 self.assertIn(command, texts.COMMANDS)
+        self.each(check)
+
+
+class RuleTests(unittest.TestCase):
+    """Rules that a small model got wrong, or that another file relies on."""
+
+    def says(self, name, *phrases):
+        text = " ".join(read(name).split())
+        for phrase in phrases:
+            self.assertIn(phrase, text, name)
+
+    def test_a_tweak_is_about_the_target_and_not_the_setting(self):
+        self.says("summarize-phase", "`predicted`: where the owner expects the measured value of the target to go",
+                  "`before`, `after`: that measured value, before and after the change. Never the value of the setting")
+
+    def test_wrap_up_can_be_resumed_and_hints_are_marked(self):
+        self.says("summarize-phase", "Read the whole `phase-N.md`", "keep what is there", "`After a hint:`")
+
+    def test_one_chat_per_owner_script_and_the_sources(self):
+        self.says("summarize-phase", "one owner script", "git history")
+
+    def test_the_owners_work_is_committed_before_finish(self):
+        self.says("summarize-phase", "commit their code", "as named")
+
+    def test_superpowers_documents_are_allowed_while_planning(self):
+        self.says("start-phase", "with Superpowers, its design and plan documents, outside of the code folders")
+        self.says("approve-phase", "The first `/build-phase` sets it again")
+        self.assertNotIn("Start no plan document", read("approve-phase"))
+
+    def test_planning_is_resumed_and_saved_in_blocks(self):
+        self.says("start-phase", "Read the plan and `phase-N.md` first", "Save each block as soon as it is agreed")
+
+    def test_suites_and_the_settings_file(self):
+        self.says("build-phase", "the suite of `project.json` that the test belongs to")
+        self.says("setup-learning", "absolute path")
 
 
 class PlanExampleTests(unittest.TestCase):

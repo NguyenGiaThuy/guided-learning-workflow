@@ -29,7 +29,7 @@ If CLAUDE.md has no section of guided learning, ask whether to add it, and use t
 
    Ask also: may a short section be added to `CLAUDE.md`? It says that the AI leaves `TODO(owner)` alone, and how Superpowers is used in a phase. Offer to show it: `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-section.md`.
 
-2. Write the answers as JSON, in the owner's words, to a temporary file outside of the project:
+2. Write the answers as JSON, in the owner's words, to a temporary file outside of the project. Use its absolute path:
 
    ```json
    {"docs": "Docs/learning", "code": ["src"], "extensions": [".cs"],
@@ -38,7 +38,7 @@ If CLAUDE.md has no section of guided learning, ask whether to add it, and use t
 
 3. In the root folder of the game run:
 
-   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" setup <file>`
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" setup "<absolute path of the file>"`
 
    Add `--claude-md` only if the owner agreed to the section. If the script refuses, mend the settings with the owner and run it again. Do not write the files yourself.
 

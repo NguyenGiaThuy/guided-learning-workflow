@@ -28,7 +28,7 @@ Do the open tasks of this part only. Read `phase-N.plan.json` and *Notes for lat
 - Write the tests first, with the names of the plan and the owner mark of `project.json`, so that normal runs skip them.
 - Run the owner tests of this part on purpose, with the mark. They must compile and fail.
 - Run every suite of `project.json` after the last code change. All other tests must pass.
-- Record each result file, from the normal runs and from the owner tests:
+- Record each result file, from the normal runs and from the owner tests, under the suite of `project.json` that the test belongs to:
 
   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" record-tests <suite> <file>`
 

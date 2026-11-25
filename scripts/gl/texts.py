@@ -538,7 +538,7 @@ TWEAKS_USED = "The 6 rounds of tuning are used. Write a reason for each target t
 NO_PROJECT = "Guided learning is not set up here. The owner sets it up with /setup-learning."
 CLI_USAGE = """Use one of:
   learning.py status [N]
-  learning.py log <kind> key=value ... [phase=N]
+  learning.py log <kind> key=value ... [phase=N]   (key=- reads the value from the input)
   learning.py record-tests <suite> <file> [phase=N]
   learning.py hand-over [N]
   learning.py setup <settings.json> [--claude-md]
@@ -569,6 +569,14 @@ def log_fields(kind, fields, missing, unknown):
     if unknown:
         text += " Unknown: %s." % ", ".join(unknown)
     return text
+
+
+def log_one_stdin(names):
+    return "Only one field can be read from the input, not %s." % " and ".join(names)
+
+
+def log_stdin_not_utf8(name):
+    return "The input for %s is not UTF-8 text." % name
 
 
 def log_empty(name):
@@ -733,7 +741,7 @@ SETUP_SETTINGS_BY_HAND = ("This game was set up before, so its own settings coun
 SETUP_SECTION_ADDED = "Added to CLAUDE.md: the section of guided learning."
 SETUP_SECTION_THERE = "CLAUDE.md has the section of guided learning already and was not changed."
 _SETUP_KEYS = {
-    "docs": "a folder of the game for the phase files, like \"Docs/learning\"",
+    "docs": "a folder of the game for the phase files, like \"Docs/learning\", and not in .claude",
     "code": "a list of code folders of the game, like [\"src\"]",
     "extensions": "a list of file extensions of the code, like [\".cs\"]",
     "ownerMark": "the text in the code that marks an owner test, on one line",
@@ -754,8 +762,8 @@ def setup_refused(name):
     return "%s cannot be used. Nothing was written." % name
 
 
-def setup_not_a_folder(docs):
-    return "\"docs\": %s cannot be a folder, because a file is in the way. Nothing was written." % docs
+def setup_not_a_folder(folder):
+    return "%s cannot be a folder, because a file is in the way. Nothing was written." % folder
 
 
 def setup_no_file(path):

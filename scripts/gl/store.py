@@ -2,7 +2,6 @@
 import hashlib
 import json
 import os
-import tempfile
 import time
 import uuid
 from datetime import datetime
@@ -83,6 +82,17 @@ def write(path, data):
     write_text(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
+def _new_file(folder):
+    """(descriptor, path) of a new temporary file with the usual mode.
+
+    Not tempfile.mkstemp: in a folder without permission it tries for minutes on Windows, and the
+    file that stays would be readable only for the user who wrote it.
+    """
+    path = os.path.join(folder, ".tmp-" + uuid.uuid4().hex)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0)
+    return _retry_permission(lambda: os.open(path, flags, 0o666)), path
+
+
 def write_text(path, text):
     """Write text (UTF-8, LF) through a temporary file and os.replace.
 
@@ -91,7 +101,7 @@ def write_text(path, text):
     path = os.fspath(path)
     folder = os.path.dirname(os.path.abspath(path))
     os.makedirs(folder, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=folder)
+    fd, tmp = _new_file(folder)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(text.encode("utf-8"))
