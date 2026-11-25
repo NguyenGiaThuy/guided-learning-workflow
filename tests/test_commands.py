@@ -291,12 +291,27 @@ class ApproveTests(Base):
             (lambda p: p.update(concepts=["ai"]), texts.gap_list("concepts")),
             (lambda p: p["parts"][0].update(scripts=1), texts.gap_parts("Owner 1 Moth", 0)),
             (lambda p: p[s][0].pop("id"), texts.gap_id("scripts")),
+            (lambda p: p[s][0].update(id="moth", todos=["moth.1"]), texts.gap_script_id("moth")),
+            (lambda p: p[s][0].update(id=True, todos=["True.1"]), texts.gap_script_id("True")),
+            (lambda p: p[s][0].update(todos=[1.1]), texts.gap_script("Owner 1 Moth", "todos")),
+            (lambda p: p[s][0].update(tests=[None]), texts.gap_script("Owner 1 Moth", "tests")),
+            (lambda p: p[s][0].update(tests=["MothTests.Turns", " "]), texts.gap_script("Owner 1 Moth", "tests")),
+            (lambda p: p["parts"][0].update(tasks=[None]), texts.gap_part_tasks("Part 1")),
+            (lambda p: p["parts"][0].update(scripts=None), texts.gap_part_scripts("Part 1")),
+            (lambda p: p["parts"].append({"name": "B", "tasks": ["x"], "scripts": None}),
+             texts.gap_part_scripts("Part 2 (B)")),
+            (lambda p: p["parts"][0].update(scripts=[1, 2, 3, None]), texts.gap_part_script("Part 1", None)),
+            (lambda p: p[t][0].update(settings=[5]), texts.gap_target("wins", "settings")),
+            (lambda p: p[q][0].update(points=[""]), texts.gap_points("q1")),
+            (lambda p: p["concepts"][0].update(name=" "), texts.gap_concept_name("ai")),
+            (lambda p: p["concepts"][0].pop("name"), texts.gap_concept_name("ai")),
         ]
         for fn, item in cases:
             self.assertIn(item, change(fn))
 
     def test_one_sided_target_and_empty_part_are_fine(self):
-        p = full_plan(parts=TWO_PARTS + [{"name": "Rest", "tasks": ["Sound"], "scripts": []}])
+        p = full_plan(parts=TWO_PARTS + [{"name": "Rest", "tasks": ["Sound"], "scripts": []},
+                                         {"name": "More", "tasks": ["Music"]}])
         p["targets"][0].pop("max")
         self.planning(p)
         self.accepted("approve", "2")

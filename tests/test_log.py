@@ -267,6 +267,19 @@ class CliTests(Base):
         self.assertEqual(code, 1)
         self.assertIn("project.json", out)
 
+    def test_a_plan_of_wrong_types_is_one_line_and_no_traceback(self):
+        self.make({"turn": "ai"}, files={"src/Moth.cs": shell(["1.1", "1.2"])})
+        p = full_plan(parts=TWO_PARTS)
+        p["scripts"][0]["tests"] = [None]
+        bad_tests = dict(p)
+        for plan_, args in ((bad_tests, ("hand-over",)), (dict(full_plan(), targets=None), ("status",)),
+                            (dict(full_plan(), targets=[7]), ("log", "measure", "target=wins", "value=1")),
+                            (dict(full_plan(), scripts="x"), ("hand-over",))):
+            helpers.write_json(self.project.plan_path(2), plan_)
+            code, out = self.cli(*args)   # cli() also checks that stderr is empty
+            self.assertEqual((code, len(out.splitlines())), (1, 1), out)
+            self.assertIn("guided-learning error: ", out)
+
     def test_unknown_command_prints_the_usage(self):
         for args in ((), ("frobnicate",)):
             code, out = self.cli(*args)

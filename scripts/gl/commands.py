@@ -177,7 +177,8 @@ def _filled(value):
 
 
 def _filled_list(value):
-    return isinstance(value, list) and bool(value)
+    """True for a list of texts with at least one entry."""
+    return isinstance(value, list) and bool(value) and all(_filled(v) for v in value)
 
 
 def _number(value):
@@ -216,6 +217,8 @@ def _script_gaps(scripts, concepts, parts):
     for s in scripts:
         sid = str(s.get("id"))
         label = texts.script_label(sid, s.get("name", ""))
+        if not re.fullmatch("[0-9]+", sid) and s.get("id") not in (None, ""):
+            gaps.append(texts.gap_script_id(sid))
         for key in ("path", "concept"):
             if not _filled(s.get(key)):
                 gaps.append(texts.gap_script(label, key))
@@ -224,7 +227,7 @@ def _script_gaps(scripts, concepts, parts):
                 gaps.append(texts.gap_script(label, key))
         if _filled(s.get("concept")) and s["concept"] not in known:
             gaps.append(texts.gap_unknown_concept(label, s["concept"]))
-        todos = [str(t) for t in s["todos"]] if _filled_list(s.get("todos")) else []
+        todos = s["todos"] if _filled_list(s.get("todos")) else []
         gaps += [texts.gap_todo(label, t) for t in todos if not re.fullmatch(re.escape(sid) + r"\.[0-9]+", t)]
         gaps += [texts.gap_duplicate("TODOs", t) for t in _repeated(todos)]
         if placed.count(sid) != 1:
@@ -239,6 +242,8 @@ def _part_gaps(parts, scripts):
         label = texts.part_label(i, p.get("name", ""))
         if not _filled_list(p.get("tasks")):
             gaps.append(texts.gap_part_tasks(label))
+        if not isinstance(p.get("scripts", []), list):
+            gaps.append(texts.gap_part_scripts(label))
         gaps += [texts.gap_part_script(label, sid) for sid in _part_scripts(p) if sid not in known]
     return gaps
 
@@ -264,6 +269,7 @@ def plan_gaps(project, n):
         _entries(plan, k, gaps) for k in ("concepts", "parts", "scripts", "targets", "questions")]
     if not concepts:
         gaps.append(texts.GAP_NO_CONCEPT)
+    gaps += [texts.gap_concept_name(c.get("id")) for c in concepts if not _filled(c.get("name"))]
     gaps += _script_gaps(scripts, concepts, parts) + _part_gaps(parts, scripts) + _target_gaps(targets)
     asked = {str(q.get("concept")) for q in questions}
     gaps += [texts.gap_question(c.get("name") or c.get("id")) for c in concepts if str(c.get("id")) not in asked]

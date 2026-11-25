@@ -84,6 +84,18 @@ class MarkdownTests(unittest.TestCase):
         self.assertIn("## Lessons", md.answer("q1"))
         self.assertEqual(md.lessons, [])
 
+    def test_a_hash_at_the_end_of_a_name_belongs_to_it(self):
+        md = self.load("## Concept summary\n### Events in C#\none\n### Delegates in C# ##\ntwo\n")
+        self.assertEqual((md.summary("Events in C#"), md.summary("Delegates in C#")), ("one", "two"))
+        self.assertFalse(md.summary("Events in C"))
+
+    def test_a_one_line_code_span_is_not_a_fence(self):
+        md = self.load("## Answers\n### q1\n```int x```\n## Lessons\n- one\n")
+        self.assertEqual((md.answer("q1"), md.lessons), ("```int x```", ["one"]))
+        md = self.load("## Answers\n### q1\n````cs\n```int x```\n## x\n````\n## Lessons\n- one\n")
+        self.assertIn("## x", md.answer("q1"))
+        self.assertEqual(md.lessons, ["one"])
+
     def test_same_heading_in_another_section_does_not_count(self):
         md = self.load("## Notes for later\n### q1\ntext\n### Enemy AI\ntext\n")
         self.assertFalse(md.answer("q1") or md.summary("Enemy AI"))

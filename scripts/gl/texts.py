@@ -342,7 +342,8 @@ def plan_incomplete(name):
 GAP_NO_CONCEPT = "No concept."
 GAP_NO_TARGET = "No balance target."
 GAP_NO_PART = "No part."
-_SCRIPT_KEYS = {"path": "a path", "concept": "a concept", "todos": "a list of TODO numbers", "tests": "a list of tests"}
+_SCRIPT_KEYS = {"path": "a path", "concept": "a concept", "todos": "a list of TODO numbers as text, like \"1.1\"",
+                "tests": "a list of test names"}
 _TARGET_KEYS = {"measure": "how it is measured (measure)", "settings": "a list of settings that influence it"}
 
 
@@ -352,6 +353,14 @@ def gap_list(key):
 
 def gap_id(key):
     return "An entry of \"%s\" has no id." % key
+
+
+def gap_concept_name(concept):
+    return "Concept %s: needs a name." % concept
+
+
+def gap_script_id(sid):
+    return "Script id %s must be a number." % sid
 
 
 def gap_duplicate(key, i):
@@ -380,6 +389,10 @@ def gap_parts(label, count):
 
 def gap_part_tasks(label):
     return "%s: needs a list of tasks." % label
+
+
+def gap_part_scripts(label):
+    return "%s: \"scripts\" must be a list of script ids." % label
 
 
 def gap_part_script(label, sid):
@@ -529,6 +542,11 @@ CLI_USAGE = """Use one of:
   learning.py record-tests <suite> <file> [phase=N]
   learning.py hand-over [N]
   learning.py version"""
+
+
+def unexpected_error(error):
+    """One line for an exception nobody foresaw, for example a plan edited by hand with wrong types."""
+    return "guided-learning error: %s: %s" % (type(error).__name__, " ".join(str(error).split()))
 
 
 def cli_bad_number(argument, command):

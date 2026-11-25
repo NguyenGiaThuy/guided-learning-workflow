@@ -2,8 +2,8 @@
 import re
 
 _COMMENT = re.compile(r"<!--.*?-->", re.S)
-_HEADING = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
-_FENCE = re.compile(r"^ {0,3}(```|~~~)")
+_HEADING = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")   # a closing # run follows a space
+_FENCE = re.compile(r"^ {0,3}(```(?=`*[^`]*$)|~~~)")   # ```x``` on one line is a code span, not a fence
 _ITEM = re.compile(r"^(\s*)(?:[-*+]|\d+[.)])(?:\s+(.*))?$")
 _PROCESS = re.compile(r"^\s*(?:[-*+]\s+)?[*_]*(surprised me|differently)[*_]*\s*:\s*[*_]*\s*(.*)$", re.I)
 _PLACEHOLDER = re.compile(r"^<[^<>]*>$")

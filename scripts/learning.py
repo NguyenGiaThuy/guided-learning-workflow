@@ -92,6 +92,8 @@ def main(argv):
         ok, text = command(argv[1:])
     except (Refused, log.LogError, results.ResultError, store.BadJson, store.LockTimeout, OSError) as e:
         ok, text = False, str(e)
+    except Exception as e:   # the owner sees a message, never a traceback
+        ok, text = False, texts.unexpected_error(e)
     sys.stdout.write(text + "\n")
     return 0 if ok else 1
 

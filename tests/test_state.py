@@ -187,6 +187,11 @@ class PartTests(Base):
         state.compute(proj, 2)
         self.assertEqual(proj.state_path(2).read_bytes(), before)
 
+    def test_a_part_whose_scripts_are_null(self):
+        parts = [{"name": "Part 1", "tasks": [], "scripts": [1]}, {"name": "Part 2", "tasks": [], "scripts": None}]
+        s = self.compute(plan([moth()], parts), left=[], stored=dict(self.fresh(), part=1))
+        self.assertEqual((s.status, [x.status for x in s.scripts]), ("wrap-up", ["done"]))
+
     def test_a_script_in_no_part_blocks_tune_and_is_reachable(self):
         scripts = [moth(), script(2, "Orbit", ["2.1"], [])]
         plan_ = plan(scripts, [{"name": "Part 1", "tasks": [], "scripts": [1]}])

@@ -341,12 +341,12 @@ def _build(project, st, data, plan):
     stored_turn = "owner" if data.get("turn") == "owner" else "ai"
     # A part is handed over if it is before the current one, or is the current one and the owner's turn.
     handed_parts = [i for i in range(len(parts)) if i < part or (i == part and stored_turn == "owner")]
-    handed_ids = {str(i) for p in handed_parts for i in parts[p].get("scripts", [])}
+    handed_ids = {str(i) for p in handed_parts for i in parts[p].get("scripts") or []}
 
     fresh = {s: results.fresh(project, data, s) for s in project.settings.get("suites", [])}
     helped = _help_levels(log)
     if len(handed_parts) == len(parts):   # a script in no part is reachable once all parts are handed over
-        listed = {str(i) for p in parts for i in p.get("scripts", [])}
+        listed = {str(i) for p in parts for i in p.get("scripts") or []}
         handed_ids |= {str(s.get("id")) for s in plan_scripts if str(s.get("id")) not in listed}
     st.scripts = [_script(project, data, s, str(s.get("id")) in handed_ids, fresh, helped) for s in plan_scripts]
     st.parts_total = len(parts)
