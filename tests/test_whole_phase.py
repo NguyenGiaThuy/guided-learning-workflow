@@ -224,6 +224,21 @@ class WholePhaseTests(unittest.TestCase):
         self.record(["GameTests.Starts"])
         self.assertIn(texts.done_text(1), self.typed("/finish-phase 1"))
 
+    def test_a_renamed_and_an_ignored_test(self):
+        self.built()
+        self.played()
+        self.save("src/GameTests.cs", "class GameTests {\n  [Ignore(\"later\")] void Starts() {}\n"
+                                      "  void EndsLate() { game.Ends(); }\n}\n")
+        self.record(OWNER + ["GameTests.EndsLate"])
+        self.assertIn(texts.suite_not_run("Unit", ["GameTests.Starts"]), self.blocked("/finish-phase 1"))
+        names = [t.split(".") for t in OWNER + ["GameTests.EndsLate"]]
+        path = self.tmp / "results.xml"
+        path.write_text("<testsuite>%s<testcase classname='GameTests' name='Starts'><skipped/></testcase></testsuite>"
+                        % "".join("<testcase classname='%s' name='%s'/>" % (c, m) for c, m in names))
+        os.utime(path, (self.tick(),) * 2)
+        self.cli("record-tests", "Unit", str(path))
+        self.assertIn(texts.done_text(1), self.typed("/finish-phase 1"))
+
     def test_a_skipped_phase_leaves_the_next_one_alone(self):
         self.built()
         self.assertIn("was skipped", self.typed("/start-phase 2 skip: too hard"))

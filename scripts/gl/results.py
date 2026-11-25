@@ -91,10 +91,17 @@ def known(entry):
     return sorted(names - {""})
 
 
-def record(project, n, suite, path, check=None):
-    """Store the passed and failed tests of a result file under results[suite] of phase n.
+def skipped(entry):
+    """The names that the results of a suite report as skipped, and that have no result in them."""
+    names = entry.get("skipped") if isinstance(entry, dict) else None
+    return [k for k in names if isinstance(k, str)] if isinstance(names, list) else []
 
-    Returns them. check(state) is called inside the update and may raise to refuse it.
+
+def record(project, n, suite, path, check=None):
+    """Store the passed and failed tests of a result file under results[suite] of phase n, and the
+    names of the skipped ones, which only count as seen.
+
+    Returns the passed and failed tests. check(state) is called inside the update and may raise to refuse it.
     """
     suites = project.settings.get("suites", [])
     if suite not in suites:
@@ -117,8 +124,12 @@ def record(project, n, suite, path, check=None):
             # Fresh results are added to. min() keeps the oldest part honest: if the new
             # file predates the last code change, the merged suite stops being fresh.
             stored[suite] = {"time": min(old["time"], time), "tests": dict(old["tests"], **tests)}
+            seen = set(skipped(old))
         else:
             stored[suite] = {"time": time, "tests": tests}
+            seen = set()
+        seen |= {k for k, v in found.items() if v == "skipped"}
+        stored[suite]["skipped"] = sorted(seen - set(stored[suite]["tests"]))
         stored[suite]["known"] = sorted(set(known(old)) | set(known(stored[suite])))
 
     project.update_state(n, apply)

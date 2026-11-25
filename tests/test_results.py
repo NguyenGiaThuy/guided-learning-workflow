@@ -166,7 +166,9 @@ class RecordTests(unittest.TestCase):
     def test_a_filtered_run_after_a_change_is_not_the_whole_suite(self):
         code = "class A { void x() {} void y() {} } class B { void z() {} }"
         item = texts.suite_not_run("Unit", ["A.y", "B.z"])
-        self.assertEqual(item, "Suite Unit: 2 tests not run since the last code change: A.y, B.z.")
+        self.assertEqual(item, "Suite Unit: 2 tests not run since the last code change: A.y, B.z. Run the whole suite and "
+                               "record it. A test that was removed or renamed must be gone from the code. An ignored "
+                               "test is seen when the result file of the whole suite reports it.")
         os.utime(self.code, (1000, 1000))
         results.record(self.proj, 2, "Unit", self.result_file("a.csv", self.ALL, 3000))
         os.utime(self.code, (5000, 5000))
@@ -193,10 +195,79 @@ class RecordTests(unittest.TestCase):
         self.proj.update_state(2, lambda d: d["results"]["Unit"]["tests"].pop("New.A.y") and None)
         self.assertEqual(state.suite_items(self.proj, self.state()), [])
 
+    def changed(self, code, *runs):
+        """The suite items after all tests ran, the code changed, and then these runs."""
+        results.record(self.proj, 2, "Unit", self.result_file("a.csv", self.ALL, 3000))
+        os.utime(self.code, (5000, 5000))
+        return self.items(code, *runs, saved=5000)
+
+    def test_a_renamed_test_is_gone_although_its_old_name_is_called(self):
+        code = "class A { void x() { g.y(); } void yNew() { var r = g.y(); return y(); } }\nclass B { void z() {} }"
+        self.assertEqual(self.changed(code, (6000, "A.x,pass\nA.yNew,pass\nB.z,pass\n")), [])
+        self.assertIn("A.y", self.state()["results"]["Unit"]["known"])
+        self.assertEqual(self.items(code.replace("yNew", "y"), saved=5000),   # declared again, and so listed again
+                         [texts.suite_not_run("Unit", ["A.y"])])
+
+    def test_a_removed_test_is_gone(self):
+        code = "class A { void x() {}\n// void y() {}\n}\nclass B { void z() {} }"
+        self.assertEqual(self.changed(code, (6000, "A.x,pass\n")), [texts.suite_not_run("Unit", ["B.z"])])
+        self.assertEqual(self.items(code, (6500, "B.z,pass\n"), saved=5000), [])
+
+    CODE = "class A { void x() {} void y() {} } class B { void z() {} }"
+
+    @staticmethod
+    def xml(**outcomes):
+        """A JUnit file; A_x means the test x of class A."""
+        kids = {"pass": "", "fail": "<failure/>", "skip": "<skipped/>"}
+        return "<testsuite>%s</testsuite>" % "".join(
+            '<testcase classname="Game.%s" name="%s">%s</testcase>' % (k[0], k[2:], kids[v]) for k, v in outcomes.items())
+
+    def skipped(self):
+        return self.state()["results"]["Unit"].get("skipped")
+
+    def test_a_skipped_test_counts_as_seen(self):
+        self.assertEqual(self.changed(self.CODE, (6000, self.xml(A_x="pass", A_y="skip", B_z="pass"))), [])
+        entry = self.state()["results"]["Unit"]
+        self.assertEqual((entry["skipped"], entry["tests"]),
+                         (["Game.A.y"], {"Game.A.x": "passed", "Game.B.z": "passed"}))
+
+    def test_a_skipped_test_hides_no_other(self):
+        self.assertEqual(self.changed(self.CODE, (6000, self.xml(A_x="pass", A_y="skip"))),
+                         [texts.suite_not_run("Unit", ["B.z"])])
+
+    def test_a_skipped_test_of_an_old_file_is_not_seen(self):
+        self.changed(self.CODE, (6000, self.xml(A_x="pass", A_y="skip", B_z="pass")))
+        os.utime(self.code, (7000, 7000))
+        self.assertEqual(self.items(self.CODE, (8000, self.xml(A_x="pass", B_z="pass")), saved=7000),
+                         [texts.suite_not_run("Unit", ["A.y"])])
+        self.assertEqual(self.skipped(), [])
+
+    def test_skipped_names_are_merged_and_taken_out_by_a_result(self):
+        self.changed(self.CODE, (6000, self.xml(A_x="pass", A_y="skip")), (6100, self.xml(A_x="pass", B_z="skip")))
+        self.assertEqual(self.skipped(), ["Game.A.y", "Game.B.z"])
+        self.items(self.CODE, (6200, self.xml(A_y="pass", B_z="fail")), saved=5000)
+        self.assertEqual(self.skipped(), [])
+        self.assertEqual(self.state()["results"]["Unit"]["tests"],
+                         {"Game.A.x": "passed", "Game.A.y": "passed", "Game.B.z": "failed"})
+
+    def test_a_later_skip_hides_no_result(self):
+        items = self.changed(self.CODE, (6000, self.xml(A_x="pass", A_y="fail", B_z="pass")),
+                             (6100, self.xml(A_x="skip", A_y="skip", B_z="pass")))
+        self.assertEqual(items, [texts.suite_failing("Unit", ["Game.A.y"])])
+        self.assertEqual(self.skipped(), [])
+
+    def test_damaged_skipped_names_count_as_none(self):
+        self.changed(self.CODE, (6000, self.xml(A_x="pass", B_z="pass")))
+        for odd in (5, "Game.A.y", [5, None], {"Game.A.y": 1}):
+            self.proj.update_state(2, lambda d: d["results"]["Unit"].update(skipped=odd))
+            self.assertEqual(state.suite_items(self.proj, self.state()), [texts.suite_not_run("Unit", ["A.y"])], odd)
+        results.record(self.proj, 2, "Unit", self.result_file("b.xml", self.xml(A_x="pass", A_y="skip"), 6100))
+        self.assertEqual(self.skipped(), ["Game.A.y"])
+
     def test_many_names_are_cut(self):
         names = ["A.t%d" % i for i in range(9)]
-        self.assertEqual(texts.suite_not_run("Unit", names), "Suite Unit: 9 tests not run since the last code change: "
-                                                             "A.t0, A.t1, A.t2, A.t3, A.t4 and 4 more.")
+        self.assertTrue(texts.suite_not_run("Unit", names).startswith(
+            "Suite Unit: 9 tests not run since the last code change: A.t0, A.t1, A.t2, A.t3, A.t4 and 4 more. Run "))
         self.assertIn("1 test not run", texts.suite_not_run("Unit", names[:1]))
 
     def test_result_older_than_code_is_not_fresh(self):

@@ -5,6 +5,10 @@ import re
 from .project import is_rehearsal_folder
 
 TODO = re.compile(r"TODO\(owner (\d+)\.(\d+)\)")
+_COMMENTS = ("//", "#", "--", "*", "/*")
+# Words that stand before a call, where a declaration has a type or a word like void, def or func.
+_BEFORE_CALL = {"return", "new", "await", "yield", "else", "throw", "in", "is", "not", "and", "or", "case", "assert",
+                "if", "elif", "while", "do", "raise", "with"}
 
 
 def _ids(text):
@@ -91,12 +95,28 @@ def has_test(text, test, words=None):
     return all(holds(w) for w in class_and_method(test))
 
 
-def tests_in_code(project, tests):
-    """Those of the tests whose class and method are in a code file."""
+def _declares(line, method):
+    """True if the line declares the method: its name with a "(" behind it, and before it a word or
+    the end of a type (Task<int>, int[]). A call has an operator, a dot or nothing before it."""
+    if line.lstrip().startswith(_COMMENTS) or method not in line:
+        return False
+    found = re.finditer(r"(?:(\w+)|<.*[\w\])>?]>|\])\s+%s\s*(?:<[^()]*>\s*)?\(" % re.escape(method), line)
+    return any(m.group(1) not in _BEFORE_CALL for m in found)
+
+
+def declares(text, test, words=None):
+    """True if the code holds the class of a test as a whole word, and declares its method.
+    words: as for has_test."""
+    method = class_and_method(test)[-1]
+    return has_test(text, test, words) and any(_declares(line, method) for line in text.splitlines())
+
+
+def declared_tests(project, tests):
+    """Those of the tests that a code file declares."""
     left, found = list(tests), set()
     for _, text in texts(project) if left else ():
         words = set(re.findall(r"\w+", text))
-        found.update(t for t in left if has_test(text, t, words))
+        found.update(t for t in left if declares(text, t, words))
         left = [t for t in left if t not in found]
     return [t for t in tests if t in found]
 

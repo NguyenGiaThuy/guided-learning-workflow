@@ -52,6 +52,40 @@ class ScanTests(unittest.TestCase):
         self.assertEqual(scan.owner_marks(proj, ["Explicit.Own", "Owner.Other"]), [])
         self.assertEqual(scan.owner_marks(proj, []), [])
 
+    def declares(self, line, test="GameTests.Move"):
+        return scan.declares("class GameTests {\n%s\n}\n" % line, test)
+
+    def test_declarations(self):
+        for line in ("public void Move() {}", "    void Move () {", "[Test] public async Task Move()",
+                     "async Task<int> Move()", "[UnityTest] public IEnumerator<int> Move()", "IEnumerator Move() {",
+                     "Dictionary<string, List<int>> Move()", "int[] Move()", "int[][] Move()", "void Move<T>(T x)",
+                     "public static void Move<TKey, TValue> (TKey k)", "def Move(self):", "async def Move(self):",
+                     "fn Move() {", "func Move():", "function Move() {", "fun Move() {", "\tvoid\tMove(int speed)",
+                     "class GameTests { void Other() {} void Move() {} }", "g.Move(); void Move() {}",
+                     "[Category(\"http://x\")] public void Move()"):
+            self.assertTrue(self.declares(line), line)
+        self.assertTrue(scan.declares("def test_move(self):\n", "test_move"))   # a name without a class
+
+    def test_calls_and_comments_are_no_declarations(self):
+        for line in ("g.Move();", "Move();", "    Move();", "return Move();", "return new Move();", "await Move();",
+                     "yield return Move();", "else Move();", "throw Move();", "var x = Move();", "x = y + Move()",
+                     "if (Move()) {}", "if (x && Move()) {}", "foreach (var a in Move()) {}", "a is Move(1)",
+                     "x not in Move()", "not Move()", "a and Move()", "b or Move()", "case Move():", "assert Move()",
+                     "new Move();", "() => Move();", "if (a > Move()) {}", "p-> Move();", "run(a, Move);",
+                     "if Move():", "elif Move():", "while Move():", "do Move();", "raise Move()", "with Move() as m:",
+                     "void Moves() {}", "void ReMove() {}", "void move() {}", "void Move;", "int Move = 3;",
+                     "// void Move() {}", "   // the old void Move()", "# def Move(self):", "-- void Move()",
+                     " * void Move()", "/* void Move() */"):
+            self.assertFalse(self.declares(line), line)
+
+    def test_a_declaration_needs_the_class_in_the_same_file(self):
+        self.assertFalse(scan.declares("class GameTests2 { void Move() {} }", "GameTests.Move"))
+        self.assertTrue(scan.declares("class GameTests { void Move() {} }", "Lantern.GameTests.Move(1, 2)"))
+        root = make_project(self.tmp.name + "/p", files={"src/A.cs": "class A { void x() { b.y(); } }",
+                                                         "src/B.cs": "class B { int y() { return x(); } }"})
+        self.assertEqual(scan.declared_tests(project.find(root), ["A.x", "A.y", "B.x", "B.y"]), ["A.x", "B.y"])
+        self.assertEqual(scan.declared_tests(project.find(root), []), [])
+
 
 if __name__ == "__main__":
     unittest.main()

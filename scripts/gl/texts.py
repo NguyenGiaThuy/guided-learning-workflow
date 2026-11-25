@@ -216,8 +216,9 @@ def suite_failing(suite, names):
 
 def suite_not_run(suite, names):
     shown = ", ".join(names[:5]) + (" and %d more" % (len(names) - 5) if len(names) > 5 else "")
-    return "Suite %s: %d test%s not run since the last code change: %s." % (
-        suite, len(names), "" if len(names) == 1 else "s", shown)
+    return ("Suite %s: %d test%s not run since the last code change: %s. Run the whole suite and record it. "
+            "A test that was removed or renamed must be gone from the code. An ignored test is seen when the result "
+            "file of the whole suite reports it." % (suite, len(names), "" if len(names) == 1 else "s", shown))
 
 
 def target_open(target):

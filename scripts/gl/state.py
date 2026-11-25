@@ -336,13 +336,14 @@ def targets_met(plan, log):
 
 
 def _not_run(project, data, suite, leave_out):
-    """Tests the suite has had, which are still in the code and have no fresh result in any suite.
-    A test that moved to another namespace or suite, or has other cases, counts as run."""
-    run = {scan.class_and_method(k) for s in project.settings.get("suites", []) if results.fresh(project, data, s)
-           for k in data["results"][s].get("tests") or {}}
+    """Tests the suite has had, which the code still declares and no suite has a fresh result of.
+    A test that moved to another namespace or suite, or has other cases, counts as run; so does one
+    that a result file reports as skipped."""
+    entries = [data["results"][s] for s in project.settings.get("suites", []) if results.fresh(project, data, s)]
+    run = {scan.class_and_method(k) for e in entries for k in list(e.get("tests") or {}) + results.skipped(e)}
     missing = [k for k in results.known(data["results"][suite]) if scan.class_and_method(k) not in run
                and not any(results.matches(t, k) for t in leave_out)]
-    return scan.tests_in_code(project, missing)
+    return scan.declared_tests(project, missing)
 
 
 def suite_items(project, data, leave_out=(), covered=()):

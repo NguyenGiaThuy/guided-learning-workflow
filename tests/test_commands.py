@@ -888,6 +888,17 @@ class HandOverTests(Base):
                                             "src/LaterTests.cs": "class LaterTests { void Runs() {} }"}),
                          [texts.suite_not_run("Unit", ["LaterTests.Runs", "MothTests.Dies"])])
 
+    def test_a_renamed_test_that_is_called_does_not_block(self):
+        self.build({"results": {"Unit": dict(suite_result(self.OWNER), known=sorted(self.OWNER) + ["GameTests.Move"])}},
+                   files={"src/GameTests.cs": "class GameTests { void MovesLeft() { g.Move(); } }"})
+        out = commands.hand_over(self.project, 2)
+        self.assertTrue(out.ok, out.text)
+
+    def test_an_owner_test_that_was_skipped_was_not_run(self):
+        entry = dict(suite_result(self.without_test("LampTests.Glows")), skipped=["LampTests.Glows"])
+        self.assertEqual(self.misses({"results": {"Unit": entry}}),
+                         [texts.owner_test_not_run("Owner 2 Lamp", "LampTests.Glows")])
+
     def test_owner_tests_of_later_parts_need_not_be_run(self):
         tests = {k: v for k, v in self.OWNER.items() if not k.startswith("Keeper")}
         self.build({"results": {"Unit": dict(suite_result(tests), known=sorted(self.OWNER))}}, full_plan(parts=TWO_PARTS))
@@ -1072,6 +1083,22 @@ class FinishTests(Base):
         self.alone(texts.suite_not_run("Unit", ["GameTests.Starts"]), {"results": {"Unit": entry}},
                    files={"src/GameTests.cs": "class GameTests { void Starts() {} }"})
         self.assertIn(texts.suite_not_run("Unit", ["GameTests.Starts"]), self.accepted("summarize", "2"))
+
+    def test_a_renamed_test_that_is_called_does_not_block(self):
+        self.ready({"results": {"Unit": dict(suite_result(self.PASSED), known=["GameTests.Move"])}},
+                   files={"src/GameTests.cs": "class GameTests { void MovesLeft() { g.Move(); } }"})
+        self.accepted("finish", "2")
+
+    def test_an_ignored_test_that_was_reported_does_not_block(self):
+        entry = dict(suite_result(self.PASSED), known=["GameTests.Move"], skipped=["Game.GameTests.Move"])
+        self.ready({"results": {"Unit": entry}},
+                   files={"src/GameTests.cs": 'class GameTests { [Ignore("x")] void Move() {} }'})
+        self.accepted("finish", "2")
+
+    def test_a_skipped_owner_test_is_not_done(self):
+        passed = {k: v for k, v in self.PASSED.items() if k != "LampTests.Glows"}
+        entry = dict(suite_result(passed), known=sorted(self.PASSED), skipped=["LampTests.Glows"])
+        self.alone(texts.tests_not_run("Owner 2 Lamp", ["LampTests.Glows"]), {"results": {"Unit": entry}})
 
     def test_an_owner_test_that_was_not_run_again_is_named_once(self):
         passed = {k: v for k, v in self.PASSED.items() if k != "LampTests.Glows"}
