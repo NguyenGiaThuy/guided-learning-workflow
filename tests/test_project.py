@@ -1,3 +1,4 @@
+import os
 import shutil
 import tempfile
 import unittest
@@ -46,12 +47,26 @@ class ProjectTests(unittest.TestCase):
         self.assertIs(p.active, p)
 
     def test_switch_broken_is_off_and_says_so(self):
-        for text in ("{nope", "[true]", '{"rehearsal": "yes"}'):
+        for text in ("{nope", "[true]", '{"rehearsal": "yes"}',
+                     '{"rehearsal": true}'.encode("utf-16"), b'{"rehearsal": \xff}'):
             helpers.set_switch(self.root, text)
             p = project.find(self.root)
             self.assertFalse(p.rehearsal, text)
             self.assertIn("config.json", p.problem, text)
             self.assertIs(p.active, p)
+
+    def test_switch_that_cannot_be_read_is_off(self):
+        (self.root / ".claude" / "learning" / "config.json").mkdir()
+        p = project.find(self.root)
+        self.assertFalse(p.rehearsal)
+        self.assertIn("config.json", p.problem)
+
+    @unittest.skipUnless(os.name == "nt", "case-insensitive file system")
+    def test_rehearsal_folder_name_is_matched_ignoring_case(self):
+        helpers.set_switch(self.root, '{"rehearsal": true}')
+        reh = self.root / ".claude" / "learning" / "Rehearsal"
+        helpers.make_project(reh, settings={"docs": "docs"})
+        self.assertEqual(project.find(reh / "src").root, self.root.resolve())
 
     def test_bom_and_crlf_are_read(self):
         helpers.set_switch(self.root, b'\xef\xbb\xbf{\r\n"rehearsal": true\r\n}\r\n')

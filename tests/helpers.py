@@ -18,7 +18,7 @@ PROJECT_JSON = {
 def write_json(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
+    path.write_bytes((json.dumps(data, indent=2) + "\n").encode("utf-8"))
 
 
 def make_project(tmp, phases=None, settings=None):
@@ -40,7 +40,7 @@ def make_project(tmp, phases=None, settings=None):
         if "plan" in parts:
             write_json(docs / ("phase-%d.plan.json" % n), parts["plan"])
         if "md" in parts:
-            (docs / ("phase-%d.md" % n)).write_text(parts["md"], encoding="utf-8", newline="\n")
+            (docs / ("phase-%d.md" % n)).write_bytes(parts["md"].encode("utf-8"))
     return root
 
 

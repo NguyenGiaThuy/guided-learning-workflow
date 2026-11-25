@@ -11,6 +11,7 @@ from . import texts
 STALE_SECONDS = 10.0
 LOCK_TIMEOUT = 15.0   # longer than STALE_SECONDS, so a dead holder is always taken over in time
 _RETRY_PAUSE = 0.01
+MAX_ATTEMPTS = 5
 
 
 class BadJson(Exception):
@@ -42,16 +43,21 @@ def read(path):
     """Return the JSON object in path. A missing file reads as {}.
 
     A BOM and CRLF are accepted. Raises BadJson (with file and line) for invalid JSON
-    or for JSON that is not an object.
+    for text that is not UTF-8, or for JSON that is not an object.
     """
     def load():
-        with open(path, "r", encoding="utf-8-sig", newline=None) as f:
+        with open(path, "rb") as f:
             return f.read()
 
     try:
-        text = _retry_permission(load)
+        raw = _retry_permission(load)
     except FileNotFoundError:
         return {}
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as e:
+        line = raw.count(b"\n", 0, e.start) + 1
+        raise BadJson(path, line, texts.bad_encoding(path, line))
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
@@ -108,7 +114,7 @@ def _take_over_stale(lock):
     try:
         os.rename(lock, mine)
     except OSError:
-        return
+        return False
     age = _age(mine)
     if age is not None and age < STALE_SECONDS:
         try:
@@ -119,26 +125,42 @@ def _take_over_stale(lock):
         os.remove(mine)
     except OSError:
         pass
+    return True
 
 
 def _acquire(lock, timeout):
+    """Create the lock file holding a unique token; return the token."""
+    token = uuid.uuid4().hex
     end = time.monotonic() + timeout
     while True:
         try:
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.close(fd)
-            return
+            try:
+                os.write(fd, token.encode("ascii"))
+            finally:
+                os.close(fd)
+            return token
         except (FileExistsError, PermissionError):
             age = _age(lock)
-            if age is not None and age >= STALE_SECONDS:
-                _take_over_stale(lock)
+            if age is not None and age >= STALE_SECONDS and _take_over_stale(lock):
                 continue
         if time.monotonic() >= end:
             raise LockTimeout(texts.lock_timeout(lock[:-5]))
         time.sleep(_RETRY_PAUSE)
 
 
-def _release(lock):
+def _owns(lock, token):
+    try:
+        with open(lock, "rb") as f:
+            return f.read().decode("ascii", "replace") == token
+    except OSError:
+        return False
+
+
+def _release(lock, token):
+    """Remove the lock only if it is still ours (it may have been taken over)."""
+    if not _owns(lock, token):
+        return
     try:
         _retry_permission(lambda: os.remove(lock))
     except FileNotFoundError:
@@ -149,17 +171,22 @@ def update(path, fn, timeout=LOCK_TIMEOUT):
     """Read path under `<path>.lock`, call fn(data), write the result, return it.
 
     fn may change data in place (and return None) or return a new dict.
+    If the lock was taken over as stale while fn ran, nothing is written; the update is
+    started again (fn runs again on freshly read data), at most MAX_ATTEMPTS times.
     """
     path = os.fspath(path)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     lock = path + ".lock"
-    _acquire(lock, timeout)
-    try:
-        data = read(path)
-        result = fn(data)
-        if result is not None:
-            data = result
-        write(path, data)
-        return data
-    finally:
-        _release(lock)
+    for _ in range(MAX_ATTEMPTS):
+        token = _acquire(lock, timeout)
+        try:
+            data = read(path)
+            result = fn(data)
+            if result is not None:
+                data = result
+            if _owns(lock, token):
+                write(path, data)
+                return data
+        finally:
+            _release(lock, token)
+    raise LockTimeout(texts.lock_timeout(path))

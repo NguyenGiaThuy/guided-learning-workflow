@@ -5,6 +5,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import helpers  # noqa: F401  (sets sys.path)
 from gl import store
@@ -119,6 +120,55 @@ class StoreTests(unittest.TestCase):
         with self.assertRaises(store.LockTimeout):
             store.update(p, lambda d: d, timeout=0.3)
         self.assertTrue(lock.exists())
+
+    def test_slow_holder_does_not_lose_the_other_update(self):
+        p = self.tmp / "slow.json"
+        calls = []
+
+        def slow(d):
+            calls.append(1)
+            if len(calls) == 1:
+                time.sleep(0.9)   # longer than the (lowered) stale age: B takes the lock over
+            d["A"] = 1
+
+        with mock.patch.object(store, "STALE_SECONDS", 0.3):
+            a = threading.Thread(target=lambda: store.update(p, slow))
+            a.start()
+            time.sleep(0.5)
+            store.update(p, lambda d: d.update(B=1))
+            a.join()
+        self.assertEqual(store.read(p), {"A": 1, "B": 1})
+        self.assertEqual(len(calls), 2)   # A re-ran fn on the re-read data
+        self.assertFalse(Path(str(p) + ".lock").exists())
+
+    def test_unremovable_stale_lock_still_times_out(self):
+        p = self.tmp / "stuck.json"
+        lock = Path(str(p) + ".lock")
+        lock.write_text("old")
+        old = time.time() - 20
+        os.utime(lock, (old, old))
+        real_rename = os.rename
+
+        def refuse(src, dst):
+            if os.fspath(src) == str(lock):
+                raise PermissionError("open elsewhere")
+            return real_rename(src, dst)
+
+        start = time.monotonic()
+        with mock.patch.object(os, "rename", refuse):
+            with self.assertRaises(store.LockTimeout):
+                store.update(p, lambda d: d, timeout=0.5)
+        self.assertLess(time.monotonic() - start, 3)
+
+    def test_undecodable_file_is_bad_json_with_file_and_line(self):
+        for name, raw in (("u16.json", '{"a": 1}'.encode("utf-16")),
+                          ("bad.json", b'{\n"a": \xff}')):
+            p = self.tmp / name
+            p.write_bytes(raw)
+            with self.assertRaises(store.BadJson) as cm:
+                store.read(p)
+            self.assertIn(name, str(cm.exception))
+            self.assertGreaterEqual(cm.exception.line, 1)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,8 @@ LEARNING = Path(".claude") / "learning"
 
 def _is_rehearsal_folder(folder):
     p = Path(folder)
-    return p.name == "rehearsal" and p.parent.name == "learning" and p.parent.parent.name == ".claude"
+    names = [os.path.normcase(x) for x in (p.parent.parent.name, p.parent.name, p.name)]
+    return names == [".claude", "learning", "rehearsal"]
 
 
 def _read_switch(root):
@@ -21,6 +22,8 @@ def _read_switch(root):
         data = store.read(path)
     except store.BadJson as e:
         return False, texts.config_problem(path, "line %d" % e.line)
+    except OSError as e:
+        return False, texts.config_problem(path, e.strerror or "cannot be read")
     if not isinstance(data.get("rehearsal"), bool):
         return False, texts.config_problem(path, '"rehearsal" must be true or false')
     return data["rehearsal"], None

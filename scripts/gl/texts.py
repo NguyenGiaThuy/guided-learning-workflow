@@ -5,6 +5,10 @@ def bad_json(file, line, detail):
     return "%s is not valid JSON (line %d): %s" % (file, line, detail)
 
 
+def bad_encoding(file, line):
+    return "%s is not UTF-8 text (line %d). Save it as UTF-8." % (file, line)
+
+
 def not_an_object(file):
     return "%s must hold one JSON object, written as { ... }." % file
 
