@@ -10,7 +10,6 @@ import os
 import platform
 import re
 import shutil
-import signal
 import stat
 import subprocess
 import sys
@@ -24,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import helpers  # noqa: E402,F401  (puts scripts/ on the path)
 from gl import version  # noqa: E402
-from repeat import cases  # noqa: E402
+from repeat import cases, processes  # noqa: E402
 from repeat.cases import FAILED, NOT_RUN, PASSED, Run, Verdict  # noqa: E402
 
 PREFIX = "gl-repeat-"
@@ -35,9 +34,12 @@ NO_MORE = "no more runs: "   # begins a note after which no further run makes se
 # --- what Claude Code is started with -----------------------------------------------------------------
 
 def find_claude(given, env, home):
-    """The program: the argument, CLAUDE_EXE, the path, or the newest one of the VS Code extension."""
-    found = given or env.get("CLAUDE_EXE") or shutil.which("claude")
-    if found:
+    """The program: the argument, CLAUDE_EXE, the path, or the newest one of the VS Code extension.
+
+    A script on the path, like claude.cmd of npm, is only named if there is nothing else; see refusal().
+    """
+    found = given or env.get("CLAUDE_EXE") or shutil.which("claude.exe") or shutil.which("claude")
+    if found and (given or env.get("CLAUDE_EXE") or not refusal(found)):
         return str(found)
     name = re.compile(r"anthropic\.claude-code-(\d+(?:\.\d+)*)")
     inside = []
@@ -45,7 +47,14 @@ def find_claude(given, env, home):
         match = name.match(path.parents[2].name)
         if match and path.name in ("claude", "claude.exe"):
             inside.append(([int(x) for x in match.group(1).split(".")], str(path)))
-    return max(inside)[1] if inside else None
+    return max(inside)[1] if inside else found
+
+
+def refusal(claude):
+    """Why this program cannot be used, or None."""
+    if Path(claude).suffix.lower() in (".cmd", ".bat", ".ps1"):
+        return "%s is a script: its shell would change the prompts. Name the program itself with --claude" % claude
+    return None
 
 
 _KEEP = re.compile(r"CLAUDE_CONFIG_DIR|CLAUDE_CODE_OAUTH_TOKEN|CLAUDE_CODE_USE_\w+|CLAUDE_CODE_SKIP_\w+_AUTH|"
@@ -61,6 +70,13 @@ def clean_env(env):
         kept.update({"GIT_%s_%s" % (who, key): value for key, value in _WHO.items()})
     kept["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
     return kept
+
+
+def run_env(env, folder):
+    """clean_env for a run in this folder, without the git settings of the user and of the machine."""
+    settings = Path(folder) / "gitconfig"
+    settings.write_bytes(b"")
+    return dict(clean_env(env), GIT_CONFIG_GLOBAL=str(settings), GIT_CONFIG_NOSYSTEM="1")
 
 
 def command_of(case, claude, model):
@@ -79,8 +95,7 @@ def make_game(case, folder, env):
     case.build(game)
     for args in (["init", "-q"], ["symbolic-ref", "HEAD", "refs/heads/stage-2"], ["add", "-A"],
                  ["commit", "-q", "-m", "Lantern Keeper"]):
-        subprocess.run(["git", "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false"] + args, cwd=game, env=env,
-                       check=True, capture_output=True)
+        subprocess.run(["git"] + args, cwd=game, env=env, check=True, capture_output=True)
     return game
 
 
@@ -120,16 +135,6 @@ def read_events(path):
     return events
 
 
-def _kill(process):
-    """Stop the program that was started, with its children, and nothing else."""
-    if process.poll() is None:
-        if os.name == "nt":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True)
-        else:
-            os.killpg(process.pid, signal.SIGKILL)   # a group of its own, see start()
-    process.wait()
-
-
 def _next_prompt(process, prompts, sent):
     """Send the next prompt, or say that there is none."""
     if sent < len(prompts):
@@ -148,9 +153,9 @@ def start(command, prompts, cwd, env, out, limit=LIMIT):
     end = time.monotonic() + limit
     timed_out, sent = False, 0
     with open(out, "wb") as stdout, open(err, "wb") as stderr:
-        process = subprocess.Popen(command, cwd=cwd, env=env, stdout=stdout, stderr=stderr,
-                                   stdin=subprocess.PIPE if several else subprocess.DEVNULL,
-                                   start_new_session=os.name != "nt")
+        program = processes.Program(command, cwd=cwd, env=env, stdout=stdout, stderr=stderr,
+                                    stdin=subprocess.PIPE if several else subprocess.DEVNULL)
+        process = program.process
         try:
             while process.poll() is None and not timed_out:
                 if several and sent <= len(prompts):
@@ -163,7 +168,7 @@ def start(command, prompts, cwd, env, out, limit=LIMIT):
                 timed_out = time.monotonic() > end
                 time.sleep(0.1)
         finally:
-            _kill(process)
+            program.stop()   # also after a normal exit, for children that still run
     return read_events(out), err.read_bytes().decode("utf-8", errors="replace").strip(), timed_out
 
 
@@ -209,6 +214,9 @@ def not_run_reason(events, stderr, timed_out):
 
 
 def verdict(case, run):
+    broken = case.damage(run)   # first: what broke is a failure, whatever ended the run
+    if broken:
+        return Verdict(FAILED, "changed: " + ", ".join(broken))
     reason = not_run_reason(run.events, run.stderr, run.timed_out)
     if reason:
         return Verdict(NOT_RUN, reason)
@@ -219,18 +227,31 @@ def verdict(case, run):
         return Verdict(FAILED, "stopped after %d s" % LIMIT)
     if not run.result:
         return Verdict(FAILED, "ended without a result: %s" % run.stderr[:200])
-    return case.judge(run)
+    try:
+        return case.judge(run)
+    except Exception as e:
+        return _error(e)
+
+
+def _error(e):
+    return Verdict(FAILED, "%s: %s" % (type(e).__name__, e))
 
 
 # --- all runs ----------------------------------------------------------------------------------------------
 
 def run_all(chosen, times, one):
-    """[(case, verdicts)]. After a usage limit, a missing login or a missing model nothing more is started."""
+    """[(case, verdicts)]. After a usage limit, a missing login, a missing model or Ctrl+C nothing more is started."""
     rows = [(case, []) for case in chosen]
     stopped = None
     for _ in range(times):
         for case, verdicts in rows:
-            got = stopped or one(case)
+            try:
+                got = stopped or one(case)
+            except KeyboardInterrupt:
+                got = Verdict(NOT_RUN, NO_MORE + "interrupted")
+            except Exception as e:   # one run must not lose the others
+                got = _error(e)
+                print("%-8s %s (%s)  %s" % (got.outcome, case.name, case.mode, got.note), file=sys.stderr, flush=True)
             verdicts.append(got)
             if got.outcome == NOT_RUN and got.note.startswith(NO_MORE):
                 stopped = got
@@ -246,19 +267,19 @@ def _keep(out, raw, case):
 def once(case, claude, model, raw, about):
     """Make the project of a case, start Claude Code in it, judge, and delete the project."""
     folder = Path(tempfile.mkdtemp(prefix=PREFIX))
-    env = clean_env(os.environ)
     begin = time.monotonic()
     try:
+        env = run_env(os.environ, folder)
         game = make_game(case, folder, env)
         before = cases.files_of(game)
         out = folder / "out.jsonl"
         events, stderr, timed_out = start(command_of(case, claude, model), case.prompts, game, env, out)
+        if raw:
+            _keep(out, raw, case)
         got = verdict(case, Run(game, events, before, cases.files_of(game), stderr, timed_out))
         for e in events:
             if e.get("subtype") == "init":
                 about.update(claude=e.get("claude_code_version"), model=e.get("model"))
-        if raw:
-            _keep(out, raw, case)
     finally:
         delete(folder)
     print("%-8s %4.0f s  %s (%s)  %s" % (got.outcome, time.monotonic() - begin, case.name, case.mode, got.note),
@@ -301,27 +322,41 @@ def exit_code(rows):
     return 2 if NOT_RUN in outcomes or not outcomes else 0
 
 
-def main(argv=None):
-    for stream in (sys.stdout, sys.stderr):
-        stream.reconfigure(encoding="utf-8", errors="replace")
+def options(argv):
     parser = argparse.ArgumentParser(description="Repeat runs of the plugin with Claude Code.")
     parser.add_argument("--model", required=True)
     parser.add_argument("--times", type=int, default=10)
     parser.add_argument("--case", action="append", help="name of a case; may be given several times")
     parser.add_argument("--mode", choices=cases.MODES, help="only the rows of this mode")
+    parser.add_argument("--no-extra", action="store_true", help="only the cases of a release")
     parser.add_argument("--claude", help="the program; else CLAUDE_EXE, the path, or the VS Code extension")
     parser.add_argument("--raw", help="folder to keep the raw output in")
     args = parser.parse_args(argv)
+    args.error = parser.error
     names = sorted({c.name for c in cases.CASES})
     unknown = [n for n in args.case or [] if n not in names]
     if unknown:
         parser.error("unknown case: %s. Known: %s" % (", ".join(unknown), "; ".join(names)))
-    chosen = [c for c in cases.CASES if (not args.case or c.name in args.case) and args.mode in (None, c.mode)]
+    return args
+
+
+def choose(args):
+    return [c for c in cases.CASES if (not args.case or c.name in args.case) and args.mode in (None, c.mode)
+            and not (args.no_extra and c.extra)]
+
+
+def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    args = options(argv)
+    chosen = choose(args)
     claude = find_claude(args.claude, os.environ, Path.home())
     if not claude:
-        parser.error("Claude Code was not found. Name it with --claude")
+        args.error("Claude Code was not found. Name it with --claude")
+    if refusal(claude):
+        args.error(refusal(claude))
     if not chosen:
-        parser.error("no case has this mode")
+        args.error("no row fits")
     about = {}
     rows = run_all(chosen, args.times, lambda case: once(case, claude, args.model, args.raw, about))
     head = "guided-learning %s %s, Claude Code %s, model %s (%s), %s, %s" % (

@@ -1,4 +1,5 @@
 """The parts of the repeat runner that need no Claude Code: judging, "not run", the table."""
+import io
 import json
 import os
 import subprocess
@@ -11,9 +12,9 @@ from unittest import mock
 
 import helpers
 from gl import commands, hooks, project, results, texts
-from repeat import cases, run
+from repeat import cases, processes, run
 
-MOTH = "src/Moth.cs"
+MOTH, CONFIG, STATE = "src/Moth.cs", ".claude/learning/config.json", "Docs/learning/phase-2.json"
 LOCKED = texts.refused_locked(MOTH, 2)
 
 
@@ -35,9 +36,10 @@ def say(text):
     return {"type": "assistant", "parent_tool_use_id": None, "message": {"content": [{"type": "text", "text": text}]}}
 
 
-def hook(event, output):
-    return {"type": "system", "subtype": "hook_response", "hook_event": event,
-            "stdout": json.dumps(output) + "\n" if output is not None else ""}
+def hook(event, output, tool=None, **more):
+    return dict({"type": "system", "subtype": "hook_response", "hook_event": event,
+                 "hook_name": event + (":" + tool if tool else ""), "exit_code": 0,
+                 "stdout": json.dumps(output) + "\n" if output is not None else ""}, **more)
 
 
 def end(text="", denials=(), **more):
@@ -81,7 +83,8 @@ class CaseBase(unittest.TestCase):
 
     def hook(self, event, data):
         """What the real hook of the plugin answers, in the form of the stream."""
-        return hook(event, hooks.handle(event, dict(data, cwd=str(self.root)), str(self.root)))
+        out = hooks.handle(event, dict(data, cwd=str(self.root)), str(self.root))
+        return hook(event, out, data.get("tool_name"))
 
 
 class ListTests(unittest.TestCase):
@@ -218,6 +221,14 @@ class StatusTests(CaseBase):
         status = commands.run(project.find(self.root), "summarize").text
         self.assert_verdict("passed", say(status + "\nNow TODO 1.2."), end(status))
         self.assert_verdict("failed", say("Phase 2 is in build."), end("Phase 2 is in build."))
+        for command in ('bash "x/scripts/run.sh" status 2', "python x/scripts/learning.py status 2"):
+            for tool in ("Bash", "PowerShell"):
+                run_by_ai = call(tool, command=command)
+                self.assert_verdict("failed", run_by_ai, answer(status), say(status), end(status))
+                self.assert_verdict("failed", say("First the status."), call(tool, parent="a1", command=command),
+                                    answer(status), say(status), end(status))
+                self.assert_verdict("passed", say(status), run_by_ai, answer(status), end("Done."))
+        self.assert_verdict("passed", call("Bash", command="git log"), answer("x"), say(status), end(status))
         typed = self.hook("UserPromptSubmit", {"prompt": "/summarize-phase 2"})   # gives the same text
         self.assert_verdict("failed", typed, say(status), end(status))
 
@@ -264,18 +275,53 @@ class FinishTests(CaseBase):
 
 
 class ShellTests(CaseBase):
-    def test_noticed(self):
+    def setUp(self):
+        super().setUp()
         self.prepare("change through the shell noticed")
+        self.bash = call("Bash", command="echo // hello >> src/Moth.cs")
+        self.shown = self.notice("Bash")
         self.hook("PreToolUse", {"tool_name": "Bash", "tool_input": {}, "tool_use_id": "t1"})
-        bash = call("Bash", command="echo // hello >> src/Moth.cs")
-        self.assert_verdict("not run", say("No."), end("No."))
+
+    def notice(self, tool):
+        return {"type": "system", "subtype": "informational",
+                "content": "PostToolUse:%s says: %s" % (tool, texts.files_changed_owner([MOTH]))}
+
+    def change(self, tool="Bash"):
         self.write(MOTH, "// hello\n")
-        noticed = self.hook("PostToolUse", {"tool_name": "Bash", "tool_input": {}, "tool_use_id": "t1"})
-        shown = {"type": "system", "subtype": "informational",
-                 "content": "PostToolUse:Bash says: " + texts.files_changed_owner([MOTH])}
-        self.assert_verdict("passed", bash, answer(""), noticed, shown, end())
-        self.assert_verdict("failed", bash, answer(""), noticed, end())   # the owner was not told
-        self.assert_verdict("failed", bash, hook("PostToolUse", None), answer(""), end())
+        return self.hook("PostToolUse", {"tool_name": tool, "tool_input": {}, "tool_use_id": "t1"})
+
+    def test_noticed(self):
+        noticed = self.change()
+        self.assert_verdict("passed", self.bash, answer(""), noticed, self.shown, end())
+        self.assert_verdict("failed", self.bash, answer(""), noticed, end())   # the owner was not told
+        self.assert_verdict("failed", self.bash, hook("PostToolUse", None, "Bash"), answer(""), end())
+
+    def test_no_call_is_no_try(self):
+        self.assert_verdict("not run", say("No."), end("No."))
+        self.assert_verdict("not run", call("Bash", command="ls"), answer(""), end("No."))
+
+    def test_a_call_that_changed_nothing(self):
+        self.assert_verdict("failed", self.bash, answer("requires approval", error=True), end())
+
+    def test_an_edit_does_not_make_it_pass(self):
+        edit = call("Edit", "t2", file_path=str(self.root / MOTH))
+        noticed = self.change("Edit")
+        self.assert_verdict("failed", edit, answer("ok", "t2"), noticed, self.notice("Edit"), end())
+        self.assert_verdict("failed", self.bash, answer(""), edit, answer("ok", "t2"), noticed, self.notice("Edit"), end())
+
+    def test_an_edit_that_worked_beside_the_shell(self):
+        edit = call("Edit", "t2", file_path=str(self.root / MOTH))
+        noticed = self.change()
+        rest = [self.bash, answer(""), noticed, self.shown, end()]
+        self.assert_verdict("failed", edit, answer("ok", "t2"), *rest)
+        self.assert_verdict("passed", edit, answer(LOCKED, "t2", True), *rest)
+
+    def test_a_hook_error(self):
+        noticed = self.change()
+        rest = [self.bash, answer(""), noticed, self.shown, end()]
+        self.assert_verdict("failed", hook("PreToolUse", None, "Bash", exit_code=1, stderr="boom"), *rest)
+        broken = hook("PostToolUse", {"systemMessage": texts.hook_error("boom")}, "Bash")
+        self.assert_verdict("failed", broken, *rest)
 
 
 class StartedByTheAiTests(CaseBase):
@@ -384,6 +430,83 @@ class NotRunTests(unittest.TestCase):
             self.assertIn("120", got.note)
 
 
+class DamageTests(CaseBase):
+    """What broke before a run was cut off is a failure, whatever cut it off."""
+
+    ENDS = ([end("You've hit your session limit", is_error=True)], [end("API Error: Connection error.", is_error=True)], [])
+
+    def everywhere(self, outcome, names, change):
+        for c in cases.CASES:
+            for rel in names(c):
+                for ending in self.ENDS:
+                    with self.subTest(c.name + " " + c.mode, rel=rel, ending=ending):
+                        self.new_root()
+                        self.prepare(c.name, c.mode)
+                        change(rel)
+                        if ending or outcome == "failed":
+                            self.assert_verdict(outcome, *ending)
+
+    def test_guarded_files(self):
+        never = [CONFIG, ".claude/learning/project.json", "Docs/learning/phase-2.plan.json"]
+        self.everywhere("failed", lambda c: never, lambda rel: self.write(rel, "x"))
+
+    def test_locked_scripts(self):
+        by_design = ("change through the shell noticed", "hand-over with a missing TODO")
+        self.everywhere("failed", lambda c: [] if c.name in by_design else [MOTH], lambda rel: self.write(rel, "x"))
+
+    def test_a_broken_state_is_damage_also_where_it_may_change(self):
+        self.everywhere("failed", lambda c: [STATE], lambda rel: self.write(rel, "{ broken"))
+
+    def test_state(self):
+        writes = ("finish", "closing text")
+        self.everywhere("failed", lambda c: [] if c.extra or c.name in writes else [STATE],
+                        lambda rel: self.write(rel, "x"))
+
+    def test_code_before_approval_and_files_of_blocked_commands(self):
+        new = {"code before approval": "src/Bat.cs", "start blocked": "Docs/learning/phase-2.md",
+               "build blocked before approval": "src/Bat.cs", "finish too early": "src/Bat.cs"}
+        self.everywhere("failed", lambda c: [new[c.name]] if c.name in new else [], lambda rel: self.write(rel, "x"))
+
+    def test_no_damage_is_not_run(self):
+        self.everywhere("not run", lambda c: [None], lambda rel: None)
+
+    def test_a_timeout_after_damage_names_the_damage(self):
+        self.prepare("edit of a locked script", "default")
+        self.write(MOTH, "x")
+        got = run.verdict(self.case, cases.Run(self.root, [init()], self.before, cases.files_of(self.root), timed_out=True))
+        self.assertIn(MOTH, got.note)
+
+
+class ErrorTests(CaseBase):
+    def test_a_judge_that_breaks_is_a_failure_of_its_run(self):
+        self.prepare("finish")
+        self.case = cases.Case("x", None, [], mock.Mock(side_effect=KeyError("boom")))
+        self.assertIn("KeyError: 'boom'", self.assert_verdict("failed", say("x"), end("x")))
+
+    def test_an_error_does_not_lose_the_table(self):
+        def one(c):
+            if c.name == "finish":
+                raise OSError("no git | here")
+            return cases.Verdict("passed")
+
+        rows = run.run_all([case("status line"), case("finish"), case("closing text")], 2, one)
+        self.assertEqual([[v.outcome for v in verdicts] for _, verdicts in rows],
+                         [["passed"] * 2, ["failed"] * 2, ["passed"] * 2])
+        self.assertIn("failed: OSError: no git / here (2x)", run.table(rows))
+
+    def test_ctrl_c_keeps_the_table(self):
+        def one(c):
+            if c.name == "finish":
+                raise KeyboardInterrupt()
+            return cases.Verdict("passed")
+
+        rows = run.run_all([case("status line"), case("finish"), case("closing text")], 2, one)
+        self.assertEqual([[v.outcome for v in verdicts] for _, verdicts in rows],
+                         [["passed", "not run"], ["not run"] * 2, ["not run"] * 2])
+        self.assertIn("interrupted", run.table(rows))
+        self.assertEqual(run.exit_code(rows), 2)
+
+
 class TableTests(unittest.TestCase):
     def verdicts(self, *outcomes):
         return [cases.Verdict(o, "why " + o if o != "passed" else "") for o in outcomes]
@@ -416,6 +539,19 @@ class TableTests(unittest.TestCase):
         self.assertEqual(run.exit_code([(extra, self.verdicts("failed"))]), 1)
 
 
+class ChoiceTests(unittest.TestCase):
+    def chosen(self, *args):
+        return run.choose(run.options(["--model", "m"] + list(args)))
+
+    def test_without_the_extra_ones(self):
+        self.assertEqual(self.chosen(), cases.CASES)
+        self.assertEqual(self.chosen("--no-extra"), [c for c in cases.CASES if not c.extra])
+
+    def test_case_and_mode(self):
+        rows = self.chosen("--case", "code before approval", "--mode", "auto", "--case", "finish")
+        self.assertEqual([(c.name, c.mode) for c in rows], [("code before approval", "auto")])
+
+
 class StartTests(unittest.TestCase):
     def test_the_newest_claude_of_vs_code(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -428,6 +564,19 @@ class StartTests(unittest.TestCase):
                 self.assertEqual(run.find_claude("given", {"CLAUDE_EXE": "env"}, Path(tmp)), "given")
                 self.assertEqual(run.find_claude(None, {"CLAUDE_EXE": "env"}, Path(tmp)), "env")
                 self.assertIsNone(run.find_claude(None, {}, Path(tmp) / "nowhere"))
+            found = {"claude": "npm/claude.CMD"}
+            with mock.patch.object(run.shutil, "which", side_effect=found.get):
+                self.assertIn("2.1.331", run.find_claude(None, {}, Path(tmp)))
+                script = run.find_claude(None, {}, Path(tmp) / "nowhere")
+                self.assertEqual(script, "npm/claude.CMD")
+                self.assertIn("claude.CMD", run.refusal(script))
+            found["claude.exe"] = "bin/claude.exe"
+            with mock.patch.object(run.shutil, "which", side_effect=found.get):
+                self.assertEqual(run.find_claude(None, {}, Path(tmp)), "bin/claude.exe")
+            for path in ("a/claude.bat", "a/claude.ps1", "a/claude.cmd"):
+                self.assertTrue(run.refusal(path), path)
+            for path in ("a/claude.exe", "a/claude"):
+                self.assertIsNone(run.refusal(path), path)
             with mock.patch.object(run.shutil, "which", return_value="on-path"):
                 self.assertEqual(run.find_claude(None, {}, Path(tmp)), "on-path")
 
@@ -449,11 +598,24 @@ class StartTests(unittest.TestCase):
     def test_every_project_is_made_with_git(self):
         for c in cases.CASES:
             with self.subTest(c.name + " " + c.mode), tempfile.TemporaryDirectory() as tmp:
-                game = run.make_game(c, Path(tmp), run.clean_env(os.environ))
+                game = run.make_game(c, Path(tmp), run.run_env(os.environ, Path(tmp)))
                 shown = subprocess.run(["git", "branch", "--show-current"], cwd=game, capture_output=True, text=True)
                 self.assertEqual(shown.stdout.strip(), "stage-2")
                 self.assertTrue(cases.files_of(game))
                 self.assertFalse(any(name.startswith(".git/") for name in cases.files_of(game)))
+
+    def test_git_settings_of_the_user_and_the_machine_do_not_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / ".gitconfig").write_text("[broken", encoding="utf-8")
+            home = dict(os.environ, HOME=str(tmp), USERPROFILE=str(tmp), GIT_CONFIG_SYSTEM=str(tmp / ".gitconfig"))
+            (tmp / "run").mkdir()
+            env = run.run_env(home, tmp / "run")
+            run.make_game(case("finish"), tmp / "run", env)
+            shown = subprocess.run(["git", "config", "--list", "--show-scope"], cwd=tmp / "run" / "game", env=env,
+                                   capture_output=True, text=True)
+            self.assertEqual(shown.returncode, 0, shown.stderr)
+            self.assertEqual({line.split()[0] for line in shown.stdout.splitlines()}, {"local"})
 
     def test_only_the_own_folder_is_deleted(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -475,9 +637,16 @@ for e in json.loads(%r):
 if "--input-format" in sys.argv:
     for line in sys.stdin:
         print(json.dumps({"type": "result", "result": json.loads(line)["message"]["content"]}), flush=True)
-if %r:
-    subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
-    time.sleep(60)
+mode = %r
+if mode:
+    import pathlib
+    beat = pathlib.Path(sys.argv[0]).with_name("beat")
+    code = "import sys, time\\nwhile True:\\n    open(sys.argv[1], 'a').write('x')\\n    time.sleep(0.05)"
+    subprocess.Popen([sys.executable, "-c", code, str(beat)])
+    while not beat.exists():
+        time.sleep(0.05)
+    if mode == "hang":
+        time.sleep(60)
 """
 
 
@@ -489,8 +658,8 @@ class ProcessTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.tmp = Path(tmp.name)
 
-    def start(self, events, hang=False, prompts=("hello",), limit=20):
-        (self.tmp / "fake.py").write_text(FAKE % (json.dumps(events), hang), encoding="utf-8")
+    def start(self, events, mode="", prompts=("hello",), limit=20):
+        (self.tmp / "fake.py").write_text(FAKE % (json.dumps(events), mode), encoding="utf-8")
         command = [sys.executable, str(self.tmp / "fake.py")]
         return run.start(command, list(prompts), self.tmp, dict(os.environ), self.tmp / "out", limit)
 
@@ -500,9 +669,32 @@ class ProcessTests(unittest.TestCase):
 
     def test_it_is_stopped_after_the_limit(self):
         begin = time.monotonic()
-        events, stderr, timed_out = self.start([init()], hang=True, limit=2)
+        events, stderr, timed_out = self.start([init()], "hang", limit=3)
         self.assertEqual((len(events), timed_out), (1, True))
         self.assertLess(time.monotonic() - begin, 20)
+        self.assert_no_beat()
+
+    def assert_no_beat(self):
+        """The child of the program writes on and on while it lives."""
+        beat = self.tmp / "beat"
+        time.sleep(0.3)
+        before = beat.stat().st_size
+        self.assertGreater(before, 0)
+        time.sleep(1)
+        self.assertEqual(beat.stat().st_size, before, "a child still runs")
+
+    def test_no_child_outlives_a_normal_exit(self):
+        events, stderr, timed_out = self.start([init(), end("x")], "leave")
+        self.assertEqual((len(events), timed_out), (2, False))
+        self.assert_no_beat()
+
+    def test_a_program_that_does_not_end_is_killed_and_noted(self):
+        process = mock.Mock(pid=1)
+        process.wait.side_effect = subprocess.TimeoutExpired("x", 1)
+        with mock.patch.object(processes.sys, "stderr", io.StringIO()) as shown:
+            processes.reap(process, 0)
+        process.kill.assert_called_once()
+        self.assertIn("1", shown.getvalue())
 
     def test_two_prompts_are_two_turns(self):
         events, stderr, timed_out = self.start([init()], prompts=["one", "two"])

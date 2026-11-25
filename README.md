@@ -61,7 +61,7 @@ You can try the whole workflow on a fake game, Lantern Keeper, before you use it
 - **Changes through the shell are noticed, not prevented.** The hooks refuse the edit tools. A shell command, a program or an MCP server can still change a locked file. Then you are told, and the AI is told to ask you before it does anything else. Nothing is undone. An AI that is set on it could also call the script of the plugin in ways that no hook sees.
 - **The hooks need Python and bash.** If they cannot start, Claude Code goes on without them. You notice it because the status line is missing, and `/summarize-phase` fails with a message.
 - **Not tried:** the VS Code panel, changes through an engine's MCP server, and bypass mode (`--dangerously-skip-permissions`).
-- **Permission questions.** Claude Code lets a command run the script without asking only in the answer to that command. When you go on talking in the same chat, it asks for your permission in the default mode before the AI writes a record.
+- **Permission questions.** Claude Code lets a command run the script without asking only in the answer to that command. When you go on talking in the same chat, it asks for your permission in the default mode before the AI writes a record. It also asks for the git commits in `/build-phase`.
 - The points of the wrap-up questions are in the plan file, and you can read them. Do not.
 
 ## Platforms
@@ -73,7 +73,7 @@ Test results are read from NUnit 3 XML (Unity writes it), JUnit XML, or lines of
 ## Contributing
 
 - Unit tests, with the standard library only: `python -m unittest discover -s tests -v`. After a change of the manifests or skills: `claude plugin validate .`.
-- Repeat runs: `python tests/repeat/run.py --model <model> --times 10` starts Claude Code in throwaway projects and judges each run by files and output, not by asking a model. **It uses your Claude account**, about 25 short runs for each time. `--case` and `--mode` choose rows, and `--raw <folder>` keeps the output. Your own settings, plugins and MCP servers are not loaded. A row counts only with 10 of 10. *Not run* (no connection, a usage limit, or the AI did not try) is no pass.
+- Repeat runs: `python tests/repeat/run.py --model <model> --times 10` starts Claude Code in throwaway projects and judges each run by files and output, not by asking a model. **It uses your Claude account**: the release run with `--times 10` is about 220 starts, and 30 more with the extra rows. `--case`, `--mode` and `--no-extra` choose rows, and `--raw <folder>` keeps the output. Your own settings, plugins and MCP servers are not loaded. A row counts only with 10 of 10. *Not run* (no connection, a usage limit, or the AI did not try) is no pass. The throwaway projects are deleted, but Claude Code itself keeps small folders named `...gl-repeat-...` under `~/.claude/projects` for some runs. You may delete them.
 - If you enable this plugin in its own repository, the template in `rehearsal/project` counts as a project: the hooks refuse edits of its locked files by the AI.
 - No person's name, email or real game in any file. Examples use Lantern Keeper.
 
