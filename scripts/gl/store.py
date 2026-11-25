@@ -45,18 +45,23 @@ def _retry_permission(action, seconds=2.0):
             time.sleep(_RETRY_PAUSE)
 
 
+def read_bytes(path):
+    """The content of a file that another process may have open for a moment."""
+    def load():
+        with open(path, "rb") as f:
+            return f.read()
+
+    return _retry_permission(load)
+
+
 def read(path):
     """Return the JSON object in path. A missing file reads as {}.
 
     A BOM and CRLF are accepted. Raises BadJson (with file and line) for invalid JSON
     for text that is not UTF-8, or for JSON that is not an object.
     """
-    def load():
-        with open(path, "rb") as f:
-            return f.read()
-
     try:
-        raw = _retry_permission(load)
+        raw = read_bytes(path)
     except FileNotFoundError:
         return {}
     try:
@@ -101,9 +106,7 @@ def write_text(path, text):
 
 def file_hash(path):
     """sha256 hex of the file content with CRLF turned into LF."""
-    with open(path, "rb") as f:
-        data = f.read().replace(b"\r\n", b"\n")
-    return hashlib.sha256(data).hexdigest()
+    return hashlib.sha256(read_bytes(path).replace(b"\r\n", b"\n")).hexdigest()
 
 
 def _age(path):
@@ -177,9 +180,10 @@ def _release(lock, token):
         pass
 
 
-def update(path, fn, timeout=LOCK_TIMEOUT):
+def update(path, fn, timeout=LOCK_TIMEOUT, after=None):
     """Read path under `<path>.lock`, call fn(data), write the result, return it.
 
+    after() is called once the file is written, while the lock is still held.
     fn may change data in place (and return None) or return a new dict.
     If the lock was taken over as stale while fn ran, nothing is written; the update is
     started again (fn runs again on freshly read data), at most MAX_ATTEMPTS times.
@@ -196,6 +200,8 @@ def update(path, fn, timeout=LOCK_TIMEOUT):
                 data = result
             if _owns(lock, token):
                 write(path, data)
+                if after:
+                    after()
                 return data
         finally:
             _release(lock, token)

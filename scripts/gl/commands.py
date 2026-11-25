@@ -1,4 +1,4 @@
-"""The owner's commands and the hand-over of the AI. Decisions are made inside store.update, so two
+"""The owner's commands and the hand-over of the AI. Decisions are made inside update_state, so two
 chats at once cannot both act on the same old state."""
 import re
 from collections import namedtuple
@@ -13,7 +13,7 @@ _NUMBER = re.compile(r"(?:phase[- ]?)?([0-9]{1,6})(?:\s+(.*))?$", re.I | re.S)
 
 
 class _Stop(Exception):
-    """Leaves a store.update callback without writing anything."""
+    """Leaves an update_state callback without writing anything."""
 
     def __init__(self, ok, lines, next_line):
         super().__init__(next_line)
@@ -105,7 +105,7 @@ def _mark_skipped(project, prev, reason, items):
                 _add(items, state.compute(project, prev).open_items)
             data.update(status="skipped", skip=reason)
 
-    store.update(project.state_path(prev), apply)
+    project.update_state(prev, apply)
 
 
 def _add(items, more):
@@ -157,7 +157,7 @@ def _start(project, n, rest):
         if carried:
             data["carried"] = list(carried)
 
-    data = store.update(path, apply)
+    data = project.update_state(n, apply)
     return Outcome(True, "\n".join(_planning_lines(project, n, data) + [texts.next_line("approve-phase", n)]))
 
 
@@ -229,7 +229,7 @@ def _approve(project, n, rest):
             st = state.compute(project, n)
             raise _refuse([texts.cannot_in_status("approve-phase", n, status)], render.next_line(st))
 
-    store.update(project.state_path(n), apply)
+    project.update_state(n, apply)
     return Outcome(True, "\n".join(lines + [render.next_line(state.compute(project, n))]))
 
 
@@ -276,7 +276,7 @@ def _build(project, n, rest):
             raise _refuse([texts.owners_turn(n, st.part)] + _open_lines(items), render.next_line(st))
         data.update(turn="ai", part=st.part)
 
-    data = store.update(project.state_path(n), apply)
+    data = project.update_state(n, apply)
     return Outcome(True, "\n".join(_build_lines(project, n, data) + [texts.next_line("summarize-phase", n)]))
 
 
@@ -378,7 +378,7 @@ def hand_over(project, n=None):
         if n is None:
             raise _refuse([texts.NO_PHASE_YET], texts.next_line("start-phase", 1))
         _need_phase(project, n)
-        data = store.update(project.state_path(n), apply)
+        data = project.update_state(n, apply)
     except _Stop as stop:
         return stop.outcome
     st = state.compute(project, n)
@@ -428,7 +428,7 @@ def _finish(project, n, rest):
                           render.next_line(st))
         data.update(status="done", locked=[], closing={"pending": True, "tries": 0})
 
-    store.update(project.state_path(n), apply)
+    project.update_state(n, apply)
     scorecard.write_once(project, n)
     return Outcome(True, closing_text(project, n))
 

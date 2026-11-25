@@ -129,7 +129,7 @@ def phase_for(project, n):
 
 
 def check_open(n):
-    """A check for store.update: refuses a phase that is not in status build."""
+    """A check for update_state: refuses a phase that is not in status build."""
     def check(data):
         status = data.get("status") or "planning"
         if status != "build":
@@ -164,7 +164,7 @@ def add(project, n, kind, /, **fields):
         else:
             data.setdefault("log", []).append(dict({"time": store.now(), "kind": kind}, **entry))
 
-    return _reply(kind, entry, store.update(project.state_path(n), apply))
+    return _reply(kind, entry, project.update_state(n, apply))
 
 
 def _reply(kind, entry, data):

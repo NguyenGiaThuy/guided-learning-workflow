@@ -3,6 +3,7 @@ import os
 import subprocess
 
 from . import markdown, results, scan, store, texts
+from .project import norm
 
 DETACHED = texts.DETACHED
 BRANCH_STATUSES = ("build", "tune", "wrap-up")
@@ -292,13 +293,9 @@ def carry_over(project, n):
 def _stray_todos(project, plan_scripts):
     """TODOs of this phase's scripts in files that are no owner script of the phase."""
     ids = {str(s.get("id")) for s in plan_scripts}
-    own = {_norm(project.root / s.get("path", "")) for s in plan_scripts}
+    own = {norm(project.root / s.get("path", "")) for s in plan_scripts}
     return [texts.todo_elsewhere(todo, rel) for rel, todo in scan.todos_in_code(project)
-            if todo.split(".")[0] in ids and _norm(project.root / rel) not in own]
-
-
-def _norm(path):
-    return os.path.normcase(os.path.realpath(path))
+            if todo.split(".")[0] in ids and norm(project.root / rel) not in own]
 
 
 def plan_differs(project, n, data):

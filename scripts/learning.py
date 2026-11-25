@@ -7,7 +7,7 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", newline="\n")
 
-from gl import commands, log, project, results, store, texts, version  # noqa: E402
+from gl import commands, hooks, log, project, results, store, texts, version  # noqa: E402
 
 
 class Refused(Exception):
@@ -84,7 +84,21 @@ SUBCOMMANDS = {"status": _status, "log": _log, "record-tests": _record_tests, "h
                "version": _version}
 
 
+def _hook(event):
+    """Answer one hook call of Claude Code. Always exit code 0: the answer is in the output."""
+    try:
+        raw = sys.stdin.buffer.read()
+    except Exception:   # no usable stdin is treated like broken JSON
+        raw = b""
+    out = hooks.answer(event, raw)
+    if out:
+        sys.stdout.write(out + "\n")
+    return 0
+
+
 def main(argv):
+    if argv and argv[0] == "hook":
+        return _hook(argv[1] if len(argv) > 1 else "")
     command = SUBCOMMANDS.get(argv[0]) if argv else None
     try:
         if command is None:

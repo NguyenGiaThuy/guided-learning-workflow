@@ -106,7 +106,7 @@ def record(project, n, suite, path, check=None):
         else:
             stored[suite] = {"time": time, "tests": tests}
 
-    store.update(project.state_path(n), apply)
+    project.update_state(n, apply)
     return tests
 
 

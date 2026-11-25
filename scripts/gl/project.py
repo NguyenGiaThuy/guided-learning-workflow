@@ -7,6 +7,11 @@ from . import store, texts
 LEARNING = Path(".claude") / "learning"
 
 
+def norm(path):
+    """The form in which two paths are compared."""
+    return os.path.normcase(os.path.realpath(path))
+
+
 def _is_rehearsal_folder(folder):
     p = Path(folder)
     names = [os.path.normcase(x) for x in (p.parent.parent.name, p.parent.name, p.name)]
@@ -72,6 +77,22 @@ class Project:
 
     def md_path(self, n):
         return self.docs / ("phase-%d.md" % n)
+
+    def note_path(self, n):
+        """Where update_state notes the hash of the state file it wrote."""
+        return self.root / LEARNING / "local" / "written" / ("phase-%d.json" % n)
+
+    def update_state(self, n, fn):
+        """Every write of phase-N.json. The hooks use the note to tell it from any other change."""
+        path = self.state_path(n)
+
+        def note():
+            try:
+                store.write(self.note_path(n), {"hash": store.file_hash(path)})
+            except OSError:
+                pass   # the record itself is safe; the hooks then ask about the change
+
+        return store.update(path, fn, after=note)
 
 
 def find(cwd):

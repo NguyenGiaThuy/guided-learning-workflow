@@ -615,6 +615,69 @@ def tests_recorded(suite, outcomes):
     return "Recorded for suite %s: %d passed, %d failed." % (suite, outcomes.count("passed"), outcomes.count("failed"))
 
 
+# --- hooks ------------------------------------------------------------------------------------------
+
+HOOK_INPUT = "the hook input is not a JSON object."
+HOOK_NO_PATH = "the hook input names no file."
+HOOK_SNAPSHOT = "the list of files from before this tool call is not readable."
+
+
+def hook_error(message):
+    return "guided-learning error: %s" % message
+
+
+def refused_locked(path, n):
+    return ("%s is locked: in phase %s the owner writes it. Do not edit it by any other route. "
+            "Help the owner with hints or a review instead (/summarize-phase %s)." % (path, n, n))
+
+
+def refused_state(path):
+    return ("%s is written only by the script. Use learning.py log, record-tests or hand-over instead." % path)
+
+
+def refused_plan(path, n):
+    return ("%s is approved and locked. Tell the owner what should change: the owner edits it by hand and "
+            "accepts it with /approve-phase %s change: <reason>" % (path, n))
+
+
+def refused_settings(path):
+    return "%s belongs to the owner. Tell the owner what should change; the owner edits it by hand." % path
+
+
+def refused_local(path):
+    return "%s holds the records of the learning script. Leave it alone." % path
+
+
+def refused_code_planning(path, n):
+    return ("%s is code, and phase %s is still being planned. Finish the plan with the owner. The owner accepts it "
+            "with /approve-phase %s and then starts the work with /build-phase %s." % (path, n, n, n))
+
+
+def refused_code_unbuilt(path, n):
+    return ("%s is code, and the work on phase %s has not started. Wait until the owner types /build-phase %s."
+            % (path, n, n))
+
+
+def refused_todo(path, ids):
+    return ("This edit of %s removes %s. Leave it there: the owner replaces it with their own code. If it should "
+            "not be there at all, ask the owner to remove it."
+            % (path, ", ".join("TODO(owner %s)" % i for i in ids)))
+
+
+def files_changed_owner(names):
+    return ("Files of the learning workflow changed while a tool ran: %s. If that was you, carry on. "
+            "The AI is asked to check with you; nothing was undone." % ", ".join(names))
+
+
+def files_changed_ai(names):
+    return ("Owner or workflow files changed while this tool ran: %s. Ask the owner whether it was them before "
+            "you do anything else." % ", ".join(names))
+
+
+def closing_asked(text):
+    return "End your answer with exactly this text, word for word, on lines of its own:\n" + text
+
+
 # --- the status line of SessionStart --------------------------------------------------------
 
 def hooks_line(version, code, rehearsal, run, problem):
