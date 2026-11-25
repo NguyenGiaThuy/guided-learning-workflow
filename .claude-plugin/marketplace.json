@@ -1,0 +1,13 @@
+{
+  "name": "guided-learning-workflow",
+  "owner": {
+    "name": "guided-learning-workflow contributors"
+  },
+  "plugins": [
+    {
+      "name": "guided-learning",
+      "source": "./",
+      "description": "A guided learning workflow for making games."
+    }
+  ]
+}
