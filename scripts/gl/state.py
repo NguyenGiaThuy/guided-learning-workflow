@@ -108,22 +108,31 @@ def phase_branch(project):
     return None
 
 
+class _GitError(Exception):
+    """Git gave no usable answer."""
+
+
 def _git(project, *args):
-    """Run git quietly in the project folder; return (returncode, stdout), or None if it cannot run.
+    """Run git quietly in the project folder; return (returncode, stdout). None if there is no git;
+    the returncode -1 if it did not end.
 
     Only plumbing commands are used, and the answers are read from return codes and refs,
-    never from messages, so the user's language does not matter.
+    never from messages, so the user's language does not matter. The repository is the one of the
+    folder, whatever GIT_ variables the caller has.
     """
     kwargs = {}
     if os.name == "nt":
         kwargs["creationflags"] = 0x08000000   # CREATE_NO_WINDOW
-    env = dict(os.environ, LC_ALL="C", GIT_TERMINAL_PROMPT="0")
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith("GIT_")}
+    env.update(LC_ALL="C", GIT_TERMINAL_PROMPT="0")
     try:
         done = subprocess.run(["git", "-C", str(project.root)] + list(args), stdin=subprocess.DEVNULL,
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=GIT_TIMEOUT,
                               env=env, **kwargs)
-    except (OSError, subprocess.SubprocessError):
+    except OSError:
         return None
+    except subprocess.SubprocessError:
+        return -1, ""
     return done.returncode, done.stdout.decode("utf-8", errors="replace").strip()
 
 
@@ -142,14 +151,29 @@ def current_branch(project):
     return None
 
 
+def _in_repository(project):
+    """True if the folder lies in a repository, also in one that git cannot read."""
+    folder = os.path.realpath(project.root)
+    while not os.path.lexists(os.path.join(folder, ".git")):
+        folder, below = os.path.dirname(folder), folder
+        if folder == below:
+            return False
+    return True
+
+
 def _ref_exists(project, ref):
+    """False also without git or repository. Raises _GitError if git cannot tell."""
     found = _git(project, "rev-parse", "--verify", "-q", ref)
-    return found is not None and found[0] == 0
+    if found is None:
+        return False
+    if found[0] not in (0, 1) and _in_repository(project):
+        raise _GitError()
+    return found[0] == 0
 
 
 def _is_ancestor(project, ref, other):
     found = _git(project, "merge-base", "--is-ancestor", ref, other)
-    return found is None or found[0] != 1
+    return found is not None and found[0] == 0
 
 
 def _main_branch(project):
@@ -171,6 +195,7 @@ def _main_branch(project):
 
 def is_merged(project, branch):
     """True if the work of branch is merged; also without git, repository or that branch.
+    False if git cannot tell.
 
     While another branch is checked out: branch is an ancestor of HEAD. While branch itself is
     checked out that is always so; then it is the main branch, or is contained in it, or there
@@ -179,11 +204,14 @@ def is_merged(project, branch):
     if project.is_rehearsal:
         return branch in sim(project)["merged"]
     ref = "refs/heads/" + branch
-    if not _ref_exists(project, ref):
-        return True
-    if current_branch(project) != branch:
-        return _is_ancestor(project, ref, "HEAD")
-    name, refs = _main_branch(project)
+    try:
+        if not _ref_exists(project, ref):
+            return True
+        if current_branch(project) != branch:
+            return _is_ancestor(project, ref, "HEAD")
+        name, refs = _main_branch(project)
+    except _GitError:
+        return False
     return name is None or name == branch or any(_is_ancestor(project, ref, r) for r in refs)
 
 
@@ -320,12 +348,28 @@ def carry_over(project, n):
     return weak, markdown.load(project.md_path(n)).differently
 
 
-def _stray_todos(project, plan_scripts):
-    """TODOs of this phase's scripts in files that are no owner script of the phase."""
-    ids = {str(s.get("id")) for s in plan_scripts}
-    own = {norm(project.root / s.get("path", "")) for s in plan_scripts}
+def _other_scripts(project, n):
+    """The owner scripts of the other phases, as far as their plans can be used."""
+    found = set()
+    for other in project.phase_numbers():
+        try:
+            scripts = store.read(project.plan_path(other)).get("scripts") if other != n else None
+        except store.BadJson:
+            continue
+        for s in scripts if isinstance(scripts, list) else []:
+            path = s.get("path") if isinstance(s, dict) else None
+            if isinstance(path, str) and path:
+                found.add(norm(project.root / path))
+    return found
+
+
+def _stray_todos(project, n, plan_scripts):
+    """Planned TODOs of this phase in files that are no owner script of any phase. Script ids begin
+    at 1 in each phase, so a TODO that is not planned here may belong to another phase."""
+    planned = {str(t) for s in plan_scripts for t in s.get("todos", [])}
+    scripts = {norm(project.root / s.get("path", "")) for s in plan_scripts} | _other_scripts(project, n)
     return [texts.todo_elsewhere(todo, rel) for rel, todo in scan.todos_in_code(project)
-            if todo.split(".")[0] in ids and norm(project.root / rel) not in own]
+            if todo in planned and norm(project.root / rel) not in scripts]
 
 
 def plan_differs(project, n, data):
@@ -355,7 +399,7 @@ def compute(project, n):
         st.open_items.append(texts.plan_not_approved(n))
     if st.status == "build":
         _build(project, st, data, plan)
-    if st.status in BRANCH_STATUSES and st.branch:
+    if st.status in BRANCH_STATUSES and st.branch and data.get("turn"):   # the first build sets the branch again
         current = current_branch(project)
         if current is not None and current != st.branch:
             st.wrong_branch = current
@@ -381,19 +425,21 @@ def _build(project, st, data, plan):
     st.parts_total = len(parts)
     st.todos_total = sum(s.todos_total for s in st.scripts)
     st.todos_done = sum(s.todos_done for s in st.scripts)
-    st.lost_todos = [t for s in st.scripts for t in s.lost]
 
     handed_done = all(s.status == "done" for s in st.scripts if s.handed)
     st.turn, st.part = stored_turn, part
     if stored_turn == "owner" and handed_done and part + 1 < len(parts):
         st.turn, st.part = "ai", part + 1
     st.part_name = parts[st.part].get("name", "") if st.part < len(parts) else ""
+    if st.turn != "ai":
+        for s in st.scripts:
+            s.lost = []   # the AI writes the shells of later parts in its own turn
+    st.lost_todos = [t for s in st.scripts for t in s.lost]
 
-    for s in st.scripts:
-        if s.handed and s.status != "done":
-            st.next_script = s.id
-            st.next_todo = s.todos_left[0] if s.todos_left else None
-            break
+    waiting = [s for s in st.scripts if s.handed and s.status != "done"]
+    for s in [s for s in waiting if s.todos_left][:1] or waiting[:1]:
+        st.next_script = s.id
+        st.next_todo = s.todos_left[0] if s.todos_left else None
     st.targets_total = len(plan.get("targets", []))
     st.targets_met, st.targets_open = targets_met(plan, log)
 
@@ -415,8 +461,9 @@ def _build(project, st, data, plan):
         st.problems += s.problems()
     st.open_items += [texts.part_not_handed(i, p.get("name", "")) for i, p in enumerate(parts)
                       if i not in handed_parts]
-    st.open_items += _stray_todos(project, plan_scripts)
-    st.open_items += [texts.owner_mark_left(p) for p in scan.owner_marks(project)]
+    st.open_items += _stray_todos(project, st.n, plan_scripts)
+    planned_tests = [str(t) for s in plan_scripts for t in s.get("tests", [])]
+    st.open_items += [texts.owner_mark_left(p) for p in scan.owner_marks(project, planned_tests)]
     st.open_items += suite_items(project, data)
     st.open_items += [texts.target_open(t) for t in st.targets_open]
     st.wrap_items = _wrap_items(project, st.n, plan, data)

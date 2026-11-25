@@ -118,6 +118,29 @@ class ScriptTests(Base):
         self.assertEqual((sc.status, sc.todos_done), ("not started", 0))
         self.assertTrue(s.problems)
 
+    def test_lost_todo_is_only_said_on_the_ais_turn(self):
+        scripts = [moth(), script(2, "Orbit", ["2.1"], [])]
+        parts = [{"name": "A", "tasks": [], "scripts": [1]}, {"name": "B", "tasks": [], "scripts": [2]}]
+        files = {"src/Orbit.cs": shell([])}   # of part 2, which the AI builds later
+        s = self.compute(plan(scripts, parts), files=files)
+        self.assertEqual((s.turn, s.lost_todos, s.problems), ("owner", [], []))
+        self.assertFalse(any("2.1" in i for i in s.open_items))
+        s = self.compute(plan(scripts, parts), left=[], stored=self.fresh(), files=files)
+        self.assertEqual((s.turn, s.lost_todos), ("ai", ["2.1"]))   # part 1 is done: the AI's turn
+        s = self.compute(plan(scripts, parts), files=files, stored={"turn": "ai", "part": 1})
+        self.assertEqual((s.lost_todos, s.problems), (["2.1"], [texts.lost_todo("2.1", "Owner 2 Orbit", "src/Orbit.cs")]))
+
+    def test_the_next_todo_comes_before_a_script_that_is_only_unknown(self):
+        scripts = [moth(), script(2, "Orbit", ["2.1", "2.2"], ["OrbitTests.A"]), script(3, "Lamp", ["3.1"], [])]
+        old = {"results": {"Unit": suite_result(PASS, OLD)}}
+        s = self.compute(plan(scripts), left=[], stored=old,
+                         files={"src/Orbit.cs": shell(["2.2"]), "src/Lamp.cs": shell(["3.1"])})
+        self.assertEqual([x.status for x in s.scripts], ["unknown", "in progress", "not started"])
+        self.assertEqual((s.next_todo, s.next_script), ("2.2", 2))
+        s = self.compute(plan(scripts), left=[], stored=old,
+                         files={"src/Orbit.cs": shell([]), "src/Lamp.cs": shell([])})
+        self.assertEqual((s.next_todo, s.next_script), (None, 1))
+
     def test_missing_file_is_never_done(self):
         proj = self.make(plan([script(1, "Moth", ALL, [])]), left=[])
         Path(proj.root, "src", "Moth.cs").unlink()
@@ -250,7 +273,7 @@ class StatusTests(Base):
         self.assertEqual(s.status, "wrap-up")
 
     def test_owner_marks_and_suites_are_open_after_build(self):
-        files = {"src/MothTests.cs": '[Explicit("Owner")]\n'}
+        files = {"src/MothTests.cs": '[Explicit("Owner")]\nclass MothTests { void Turns() {} }\n'}
         s = self.compute(plan([moth()]), left=[], stored=self.fresh(), files=files)
         self.assertTrue(any("src/MothTests.cs:1" in i for i in s.open_items))
         s = self.compute(plan([script(1, "Moth", ALL, [])]), left=[])
@@ -277,6 +300,10 @@ class StatusTests(Base):
             tuned = self.compute(plan([moth()]), left=[], stored=self.fresh())
             self.assertEqual(tuned.wrong_branch, "main")
 
+    def test_no_wrong_branch_before_the_first_build(self):
+        with mock.patch.object(state, "current_branch", return_value="main"):
+            self.assertIsNone(self.compute(plan([moth()]), stored={"turn": None}).wrong_branch)
+
     def test_a_project_without_settings_does_not_crash(self):
         proj = project.Project(self.tmp, {})
         helpers.write_json(proj.state_path(2), {"status": "build"})
@@ -300,6 +327,37 @@ class OpenItemTests(Base):
         self.assertIn(texts.todo_elsewhere("1.3", "src/Other.cs"), s.open_items)
         self.assertFalse(any("7.1" in i for i in s.open_items))
         self.assertFalse(any("src/Moth.cs" in i for i in s.open_items))   # counted once, by its label
+
+    def test_todos_and_marks_of_another_phase_do_not_count(self):
+        other = plan([script(1, "Bat", ["1.1", "1.2"], ["BatTests.Flies"])])
+        files = {"src/Bat.cs": shell(["1.2"]),
+                 "src/BatTests.cs": 'class BatTests {\n[Explicit("Owner")] void Flies() {} }\n'}
+        proj = self.make(plan([moth()]), left=[], stored=self.fresh(), files=files)
+        helpers.make_project(self.tmp, phases={1: {"state": {"status": "skipped"}, "plan": other}})
+        items = state.compute(proj, 2).open_items
+        self.assertFalse([i for i in items if "Bat" in i], items)
+        helpers.make_project(self.tmp, files={
+            "src/Free.cs": shell(["1.2", "1.8"]), "src/Moth.cs": shell(["1.9"]),
+            "src/MothTests.cs": 'class MothTests {\n[Explicit("Owner")] void Dies() {} }\n',
+            "src/Names.cs": 'class MothTestsToo { }  // [Explicit("Owner")] Dies\n'})
+        items = state.compute(proj, 2).open_items
+        self.assertIn(texts.todo_elsewhere("1.2", "src/Free.cs"), items)   # planned in this phase
+        self.assertNotIn(texts.todo_elsewhere("1.8", "src/Free.cs"), items)
+        self.assertIn(texts.todos_left("Owner 1 Moth", 1), items)   # not planned, but in this phase's script
+        self.assertEqual([i for i in items if "owner mark" in i], [texts.owner_mark_left("src/MothTests.cs:2")])
+
+    def test_a_script_of_two_phases_counts(self):
+        proj = self.make(plan([moth()]), left=["1.9"], stored=self.fresh())
+        helpers.make_project(self.tmp, phases={1: {"state": {"status": "skipped"},
+                                                   "plan": plan([script(1, "Moth", ["1.9"])])}})
+        self.assertIn(texts.todos_left("Owner 1 Moth", 1), state.compute(proj, 2).open_items)
+
+    def test_an_unusable_plan_of_another_phase_does_not_stop_this_one(self):
+        proj = self.make(plan([moth()]), left=[], stored=self.fresh(), files={"src/Bat.cs": shell(["1.2"])})
+        helpers.make_project(self.tmp, phases={1: {"state": {"status": "skipped"}}})
+        for raw in (b"{", b'{"scripts": 5}', b'{"scripts": [5, {"path": 3}]}'):
+            proj.plan_path(1).write_bytes(raw)
+            self.assertIn(texts.todo_elsewhere("1.2", "src/Bat.cs"), state.compute(proj, 2).open_items)
 
     def test_rating_and_answers(self):
         p = dict(plan([moth()]), questions=[{"id": "q1", "concept": "ai", "text": "?", "points": ["x"]}])
@@ -407,6 +465,45 @@ class GitTests(unittest.TestCase):
     def test_is_merged_without_a_main_branch(self):
         self.two_branches("other")
         self.assertTrue(state.is_merged(self.project, "stage-2"))
+
+    def test_git_variables_of_the_caller_do_not_count(self):
+        self.two_branches()
+        other = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, other, True)
+        subprocess.run(["git", "-C", str(other), "init", "-q"], check=True, capture_output=True)
+        with mock.patch.dict("os.environ", {"GIT_DIR": str(other / ".git"), "GIT_WORK_TREE": str(other)}):
+            self.assertEqual(state.current_branch(self.project), "stage-2")
+            self.assertFalse(state.is_merged(self.project, "stage-2"))
+
+    def broken_git(self, word, result):
+        """git, but a call with the word in it gives the result (a return code or an exception)."""
+        real = subprocess.run
+
+        def run(args, **kw):
+            if word not in args:
+                return real(args, **kw)
+            if isinstance(result, Exception):
+                raise result
+            return subprocess.CompletedProcess(args, result, stdout=b"")
+
+        return mock.patch("subprocess.run", side_effect=run)
+
+    def test_a_git_error_is_not_merged(self):
+        self.two_branches()
+        self.run_git("switch", "-q", "main")
+        self.run_git("merge", "-q", "--ff-only", "stage-2")
+        for word in ("merge-base", "rev-parse"):
+            for result in (128, 129, subprocess.TimeoutExpired("git", 1)):
+                with self.broken_git(word, result):
+                    self.assertFalse(state.is_merged(self.project, "stage-2"), (word, result))
+        with self.broken_git("symbolic-ref", subprocess.TimeoutExpired("git", 1)):
+            self.assertIsNone(state.current_branch(self.project))
+        self.assertTrue(state.is_merged(self.project, "stage-2"))
+
+    def test_a_repository_that_git_cannot_read_is_not_merged(self):
+        (self.tmp / ".git" / "HEAD").write_bytes(b"nonsense")
+        self.assertIsNone(state.current_branch(self.project))
+        self.assertFalse(state.is_merged(self.project, "stage-2"))
 
     def test_no_git_program_is_none(self):
         with mock.patch("subprocess.run", side_effect=FileNotFoundError):

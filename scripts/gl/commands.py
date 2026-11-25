@@ -326,12 +326,8 @@ def _todo_misses(project, scripts):
 
 def _test_code_misses(project, scripts):
     codes = [text for _, text in scan.texts(project)]
-
-    def in_code(test):
-        words = test.split("(", 1)[0].split(".")[-2:]   # class and method
-        return any(all(re.search(r"\b%s\b" % re.escape(w), code) for w in words) for code in codes)
-
-    return [texts.test_not_in_code(_label(s), t) for s in scripts for t in s.get("tests", []) if not in_code(t)]
+    return [texts.test_not_in_code(_label(s), t) for s in scripts for t in s.get("tests", [])
+            if not any(scan.has_test(code, t) for code in codes)]
 
 
 def _owner_test_misses(project, data, scripts):

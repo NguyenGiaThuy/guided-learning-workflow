@@ -74,13 +74,22 @@ def last_code_change(project):
     return max(times, default=0.0)
 
 
-def owner_marks(project):
-    """Places of the owner mark in code files, as sorted "relative/path:line" strings."""
+def has_test(text, test):
+    """True if the code holds the class and the method of a test, each as a whole word."""
+    words = test.split("(", 1)[0].split(".")[-2:]
+    return all(re.search(r"\b%s\b" % re.escape(w), text) for w in words)
+
+
+def owner_marks(project, tests):
+    """Places of the owner mark in the code files that hold one of the tests, as sorted
+    "relative/path:line" strings."""
     mark = project.settings.get("ownerMark", "")
     if not mark:
         return []
     places = []
     for rel, text in texts(project):
+        if mark not in text or not any(has_test(text, t) for t in tests):
+            continue
         for n, line in enumerate(text.splitlines(), 1):
             if mark in line:
                 places.append("%s:%d" % (rel, n))

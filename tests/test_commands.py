@@ -420,6 +420,12 @@ class BuildTests(Base):
         d = self.data()
         self.assertEqual((d["turn"], d["part"], d["branch"]), ("ai", 0, "stage-2"))
 
+    def test_a_branch_made_after_the_approval_is_not_wrong(self):
+        self.build({"branch": "main"})
+        text = self.accepted("summarize", "2")
+        self.assertNotIn("Wrong branch", text)
+        self.assertTrue(text.endswith(texts.next_line("build-phase", 2)))
+
     def test_first_build_on_a_detached_head_stores_no_branch(self):
         self.branch = state.DETACHED
         self.build()
@@ -715,6 +721,15 @@ class FinishTests(Base):
 
     def test_todo_left_in_another_file(self):
         self.alone(texts.todo_elsewhere("2.1", "src/Extra.cs"), files={"src/Extra.cs": shell(["2.1", "9.1"])})
+
+    def test_leftovers_of_a_skipped_phase_do_not_count(self):
+        other = full_plan(1)
+        for sc, name in zip(other["scripts"], ("Bat", "Wolf", "Door")):
+            sc.update(name=name, path="src/%s.cs" % name, tests=["%sTests.Moves" % name])
+        self.ready(files={"src/Bat.cs": shell(["1.2"]),
+                          "src/BatTests.cs": 'class BatTests {\n[Explicit("Owner")] void Moves() {} }\n'})
+        helpers.make_project(self.tmp, phases={1: {"state": {"status": "skipped", "skip": "x"}, "plan": other}})
+        self.accepted("finish", "2")
 
     def test_owner_mark_left(self):
         self.alone(texts.owner_mark_left("src/LampTests.cs:1"),

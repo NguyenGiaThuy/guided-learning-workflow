@@ -48,7 +48,9 @@ class ScanTests(unittest.TestCase):
         os.utime(a, (1000, 1000))
         os.utime(b, (2000, 2000))
         self.assertEqual(scan.last_code_change(proj), 2000)
-        self.assertEqual(scan.owner_marks(proj), ["src/A.cs:1", "src/b/B.cs:2"])
+        self.assertEqual(scan.owner_marks(proj, ["Explicit.Owner"]), ["src/A.cs:1", "src/b/B.cs:2"])
+        self.assertEqual(scan.owner_marks(proj, ["Explicit.Own", "Owner.Other"]), [])
+        self.assertEqual(scan.owner_marks(proj, []), [])
 
 
 if __name__ == "__main__":
