@@ -236,6 +236,43 @@ class WholePhaseTests(unittest.TestCase):
         self.record(["GameTests.Starts"])
         self.assertIn(texts.done_text(1), self.typed("/finish-phase 1"))
 
+    def test_tweaks_after_the_tests_passed(self):
+        self.built()
+        for name in SHELLS:
+            self.save(name, shell([]))
+        for name, text in TEST_CODE.items():
+            self.save(name, text)
+        self.assertIn("Phase 1 - build", self.typed("/summarize-phase 1"))   # the first arrival needs fresh results
+        games = ["GameTests.Starts", "GameTests.Ends"]
+        self.record(OWNER + games)
+        self.save("src/Keeper.cs", shell([]) + "// speed 4\n")
+        text = self.typed("/summarize-phase 1")
+        self.assertIn("Phase 1 - tune", text)
+        self.assertIn(texts.WHY["old"], text)
+        self.assertTrue(text.endswith(texts.next_line("summarize-phase", 1)))
+        self.assertIn(texts.build_is_over(1, "tune"), self.blocked("/build-phase 1"))
+        self.record(["KeeperTests.Walks"])   # a filtered run
+        self.assertIn("Phase 1 - tune", self.typed("/summarize-phase 1"))
+        self.record(failed=["KeeperTests.Walks"])
+        self.assertIn("Phase 1 - build", self.typed("/summarize-phase 1"))
+        self.save("src/Keeper.cs", shell(["3.1"]))
+        self.assertIn("Phase 1 - build", self.typed("/summarize-phase 1"))
+        self.save("src/Keeper.cs", shell([]) + "// speed 5\n")
+        self.record(OWNER + games)
+        self.assertIn("Phase 1 - tune", self.typed("/summarize-phase 1"))
+
+        self.cli("log", "measure", "target=wins", "value=50")
+        self.cli("log", "rating", "concept=ai", "rating=with help")
+        self.save("Docs/learning/phase-1.md", FULL_MD.replace("Phase 2", "Phase 1"))
+        self.save("src/Keeper.cs", shell([]) + "// speed 6\n")
+        text = self.typed("/summarize-phase 1")
+        self.assertIn("Phase 1 - wrap-up", text)
+        self.assertTrue(text.endswith(texts.next_line("summarize-phase", 1)))
+        self.assertIn(texts.suite_old("Unit"), self.blocked("/finish-phase 1"))
+        self.record(OWNER + games)
+        self.assertTrue(self.typed("/summarize-phase 1").endswith(texts.next_line("finish-phase", 1)))
+        self.assertIn(texts.done_text(1), self.typed("/finish-phase 1"))
+
     def test_a_renamed_and_an_ignored_test(self):
         self.built()
         self.played()

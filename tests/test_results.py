@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import helpers
 from helpers import make_project
 from gl import project, results, state, store, texts
 
@@ -70,6 +71,67 @@ class ParseTests(unittest.TestCase):
         self.assertTrue(results.matches("Turns", "LanternKeeper.MothTests.Turns"))
         self.assertFalse(results.matches("Turns", "LanternKeeper.MothTests.ReTurns"))
         self.assertFalse(results.matches("MothTests.Turns", "MothTests.Turn"))
+
+
+class ReachedTests(unittest.TestCase):
+    """record notes that the phase has come to the tuning."""
+
+    PASS = "".join("%s,pass\n" % t for s in helpers.full_plan()["scripts"] for t in s["tests"])
+
+    def make(self, stored=None, left=(), plan=None):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        st = dict({"status": "build", "turn": "owner", "part": 0}, **(stored or {}))
+        plan = helpers.full_plan() if plan is None else plan
+        code = {"src/%s.cs" % n: helpers.shell(left) for n in ("Moth", "Lamp", "Keeper")}
+        self.proj = project.find(make_project(tmp.name, {2: {"state": st, "plan": plan}}, files=code))
+        if "planHash" not in st:
+            self.proj.update_state(2, lambda d: d.update(planHash=store.file_hash(self.proj.plan_path(2))))
+
+    def record(self, text):
+        path = self.tmp / "r.csv"
+        path.write_text(text)
+        results.record(self.proj, 2, "Unit", path)
+        return store.read(self.proj.state_path(2)).get("reached")
+
+    def test_written_when_everything_is_handed_over_and_done(self):
+        self.make()
+        self.assertEqual(self.record(self.PASS), "tune")
+        self.assertEqual(self.record("MothTests.Dies,fail\n"), "tune")   # kept: compute looks at the results
+
+    def test_written_by_the_run_that_completes_it(self):
+        self.make()
+        first, rest = self.PASS.split("\n", 1)
+        self.assertIsNone(self.record(first + "\n"))
+        self.assertEqual(self.record(rest), "tune")
+
+    def test_not_written_before(self):
+        self.make()
+        self.assertIsNone(self.record(self.PASS.replace("Glows,pass", "Glows,fail")))
+        self.make(left=["1.1"])
+        self.assertIsNone(self.record(self.PASS))
+        self.make({"turn": "ai"})
+        self.assertIsNone(self.record(self.PASS))
+        self.make(plan=helpers.full_plan(parts=helpers.TWO_PARTS))
+        self.assertIsNone(self.record(self.PASS))
+        self.make({"part": 1}, plan=helpers.full_plan(parts=helpers.TWO_PARTS))
+        self.assertEqual(self.record(self.PASS), "tune")
+        self.make()
+        (self.proj.root / "src" / "Lamp.cs").unlink()
+        self.assertIsNone(self.record(self.PASS))
+
+    def test_not_written_for_scripts_or_parts_that_are_not_approved(self):
+        self.make({"planHash": "0" * 64})
+        self.assertIsNone(self.record(self.PASS))
+
+    def test_results_are_kept_also_without_a_usable_plan(self):
+        for plan in (None, b"{", b"{}", b'{"phase": 2}', b'{"scripts": 5}', b'{"scripts": [5]}', b'{"parts": [5], "scripts": [{}]}'):
+            self.make({"planHash": None})
+            path = self.proj.plan_path(2)
+            path.unlink() if plan is None else path.write_bytes(plan)
+            self.assertIsNone(self.record(self.PASS), plan)
+            self.assertEqual(len(store.read(self.proj.state_path(2))["results"]["Unit"]["tests"]), 4)
 
 
 class RecordTests(unittest.TestCase):

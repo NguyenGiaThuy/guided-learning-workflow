@@ -1,4 +1,6 @@
 """Work out where a phase stands from the project files. Nothing here writes a file."""
+import hashlib
+import json
 import os
 import subprocess
 
@@ -25,6 +27,7 @@ class ScriptState:
         self.tests_passed = 0
         self.tests_total = 0
         self.failing = []             # planned tests with a failed result
+        self.fails_now = False        # a planned test failed in a run that is not older than the code
         self.unrun = []               # planned tests without any result
         self.help = 0
         self.file_missing = False
@@ -275,8 +278,8 @@ def is_ignored(project, path):
 
 # --- pieces of the computation ----------------------------------------------------------------
 
-def outcome(project, data, planned, fresh):
-    """"passed", "failed", "stale" (a result older than the code) or "none" for a planned test."""
+def _held(project, data, planned, fresh):
+    """[(outcomes, is fresh)] of a planned test, for each suite that has results of it."""
     held = []
     for suite in project.settings.get("suites", []):
         entry = (data.get("results") or {}).get(suite)
@@ -286,6 +289,12 @@ def outcome(project, data, planned, fresh):
         hits = [o for name, o in tests.items() if results.matches(planned, name)]
         if hits:
             held.append((hits, fresh[suite]))
+    return held
+
+
+def outcome(project, data, planned, fresh):
+    """"passed", "failed", "stale" (a result older than the code) or "none" for a planned test."""
+    held = _held(project, data, planned, fresh)
     if not held:
         return "none"
     if not all(f for _, f in held):
@@ -323,6 +332,7 @@ def _script(project, data, plan_script, handed, fresh, helped):
     sc.tests_passed = sum(1 for o in outcomes.values() if o == "passed")
     sc.failing = [t for t, o in outcomes.items() if o == "failed"]
     sc.unrun = [t for t, o in outcomes.items() if o == "none"]
+    sc.fails_now = any("failed" in hits for t in tests for hits, is_fresh in _held(project, data, t, fresh) if is_fresh)
     if sc.todos_left:
         sc.status = "in progress" if sc.todos_done else "not started"
     elif sc.failing:
@@ -456,6 +466,45 @@ def plan_differs(project, n, data):
         return True
 
 
+# --- what keeps a phase in tune or wrap-up ----------------------------------------------------
+
+REACHED = "tune"   # the value of "reached" in phase-N.json
+
+
+def work_hash(plan):
+    """The hash of what is built: the scripts with their TODOs and tests, and the parts."""
+    work = json.dumps([plan.get("scripts"), plan.get("parts")], sort_keys=True)
+    return hashlib.sha256(work.encode("utf-8")).hexdigest()
+
+
+def work_differs(project, n, data, plan):
+    """True if the scripts or parts of the plan are not the approved ones."""
+    known = data.get("workHash")
+    return known != work_hash(plan) if known else plan_differs(project, n, data)
+
+
+def mark_reached(project, n, data):
+    """Note in the state of phase n, while it is updated with new results, that all parts are handed over
+    and all scripts done. Old results alone do not move the phase back from then on."""
+    if data.get("status") != "build" or data.get("reached") == REACHED:
+        return
+    try:
+        plan, st = store.read(project.plan_path(n)), PhaseState(n)
+        parts, handed_parts = _read_scripts(project, st, data, plan)
+        there = plan.get("scripts") or plan.get("parts")
+        built = len(handed_parts) == len(parts) and all(s.status == "done" for s in st.scripts)
+        if there and built and not work_differs(project, n, data, plan):
+            data.update(reached=REACHED, workHash=work_hash(plan))
+    except Exception:
+        pass   # the results count, also while the plan cannot be used
+
+
+def _stays_built(data, scripts):
+    """True if the phase has reached the tuning, and nothing but old or missing results speaks against it."""
+    return data.get("reached") == REACHED and not any(
+        s.todos_left or s.file_missing or s.fails_now for s in scripts)
+
+
 # --- the computation -----------------------------------------------------------------------
 
 def compute(project, n):
@@ -491,8 +540,8 @@ def compute(project, n):
     return st
 
 
-def _build(project, st, data, plan):
-    log = log_of(data)
+def _read_scripts(project, st, data, plan):
+    """Work out the scripts and whose turn it is. Returns (parts, indexes of those that are handed over)."""
     plan_scripts = plan.get("scripts", [])
     parts = plan.get("parts") or [{"name": "", "scripts": [s.get("id") for s in plan_scripts]}]
     part = data.get("part") if isinstance(data.get("part"), int) else 0
@@ -502,7 +551,7 @@ def _build(project, st, data, plan):
     handed_ids = {str(i) for p in handed_parts for i in parts[p].get("scripts") or []}
 
     fresh = {s: results.fresh(project, data, s) for s in project.settings.get("suites", [])}
-    helped = help_levels(log)
+    helped = help_levels(log_of(data))
     if len(handed_parts) == len(parts):   # a script in no part is reachable once all parts are handed over
         listed = {str(i) for p in parts for i in p.get("scripts") or []}
         handed_ids |= {str(s.get("id")) for s in plan_scripts if str(s.get("id")) not in listed}
@@ -525,8 +574,14 @@ def _build(project, st, data, plan):
     for s in [s for s in waiting if s.todos_left][:1] or waiting[:1]:
         st.next_script = s.id
         st.next_todo = s.todos_left[0] if s.todos_left else None
+    return parts, handed_parts
+
+
+def _build(project, st, data, plan):
+    plan_scripts = plan.get("scripts", [])
+    parts, handed_parts = _read_scripts(project, st, data, plan)
     st.targets_total = len(plan.get("targets", []))
-    st.targets_met, st.targets_open = targets_met(plan, log)
+    st.targets_met, st.targets_open = targets_met(plan, log_of(data))
 
     if not plan_scripts and not plan.get("parts"):
         item = texts.plan_missing(project.plan_path(st.n).name)
@@ -534,7 +589,8 @@ def _build(project, st, data, plan):
         st.problems.append(item)
         st.open_items.append(item)
         return
-    if len(handed_parts) == len(parts) and all(s.status == "done" for s in st.scripts):
+    done = all(s.status == "done" for s in st.scripts)
+    if len(handed_parts) == len(parts) and (done or _stays_built(data, st.scripts)):
         st.status = "tune" if st.targets_open else "wrap-up"
     if plan_differs(project, st.n, data):
         st.plan_changed = True

@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -9,7 +10,7 @@ from unittest import mock
 
 import helpers
 from helpers import FULL_MD, OLD, TEST_CODE, TWO_PARTS, full_plan, shell, suite_result
-from gl import commands, project, render, state, store, texts, version
+from gl import commands, project, render, results, state, store, texts, version
 
 
 class Base(unittest.TestCase):
@@ -164,6 +165,7 @@ class StartTests(Base):
 
     def test_a_skipped_phase_can_be_planned_again(self):
         self.make({1: {"state": {"status": "skipped", "skip": "x", "turn": "owner", "part": 1, "planHash": "h",
+                                 "reached": "tune", "workHash": "w",
                                  "locked": ["src/Moth.cs"], "handed": {"1": {}}, "branch": "b", "carried": ["old"],
                                  "log": [{"kind": "note"}]}}})
         self.accepted("start", "1")
@@ -662,6 +664,75 @@ class ApproveTests(Base):
         self.planning(full_plan(parts=TWO_PARTS), {"status": "build", "planHash": "0" * 64, "turn": "ai", "part": 0})
         self.accepted("approve", "2 change: nothing is handed over yet")
 
+    def tuned(self):
+        """Approved, handed over, done and recorded, and then saved again: the results are old."""
+        proj = self.planning()
+        self.accepted("approve", "2")
+        self.accepted("build", "2")
+        proj.update_state(2, lambda d: d.update(turn="owner", handed={str(s["id"]): s for s in full_plan()["scripts"]}))
+        helpers.make_project(self.tmp, files=FinishTests.CODE)
+        path = self.tmp / "r.csv"
+        path.write_text("".join("%s,pass\n" % t for t in FinishTests.PASSED))
+        results.record(proj, 2, "Unit", path)
+        self.assertEqual(self.data()["reached"], "tune")
+        self.save_again()
+        return proj
+
+    def save_again(self):
+        os.utime(str(self.tmp / "src" / "Moth.cs"), (helpers.FRESH - 1000,) * 2)
+
+    def test_a_change_of_scripts_parts_or_tests_clears_reached(self):
+        bat = helpers.script(4, "Bat", ["4.1"], ["BatTests.Flies"])
+        for change in (lambda p: p["scripts"][0]["tests"].append("MothTests.Sleeps"),
+                       lambda p: p["scripts"][0]["tests"].pop(),
+                       lambda p: p["parts"].append({"name": "Rest", "tasks": ["Sound"], "scripts": []}),
+                       lambda p: (p["scripts"].append(bat),
+                                  p["parts"].append({"name": "Bat", "tasks": ["Shell"], "scripts": [4]}))):
+            proj = self.tuned()
+            p = json.loads(json.dumps(full_plan()))
+            change(p)
+            self.put_plan(p)
+            self.accepted("approve", "2 change: more")
+            self.assertNotIn("reached", self.data())
+            self.assertEqual(state.compute(proj, 2).status, "build")
+            shutil.rmtree(self.tmp / "Docs")
+
+    def test_a_change_of_targets_or_questions_keeps_reached(self):
+        proj = self.tuned()
+        p = full_plan()
+        p["targets"][0]["max"] = 70
+        p["questions"][0]["text"] = "Which target?"
+        self.put_plan(p)
+        self.assertEqual(state.compute(proj, 2).status, "tune")
+        self.accepted("approve", "2 change: wider")
+        self.assertEqual((self.data()["reached"], state.compute(proj, 2).status), ("tune", "tune"))
+
+    def test_a_target_that_is_not_accepted_yet_does_not_keep_reached_away(self):
+        proj = self.planning()
+        self.accepted("approve", "2")
+        proj.update_state(2, lambda d: d.update(turn="owner", part=0))
+        helpers.make_project(self.tmp, files=FinishTests.CODE)
+        path = self.tmp / "r.csv"
+        path.write_text("".join("%s,pass\n" % t for t in FinishTests.PASSED))
+        p = full_plan()
+        p["scripts"][0]["tests"].append("MothTests.Sleeps")
+        for changed, found in ((p, None), (dict(full_plan(), questions=[]), "tune")):
+            self.put_plan(changed)
+            results.record(proj, 2, "Unit", path)
+            self.assertEqual(self.data().get("reached"), found)
+
+    def test_a_change_twice_compares_with_the_last_one(self):
+        self.tuned()
+        p = full_plan()
+        p["scripts"][0]["tests"].append("MothTests.Sleeps")
+        self.put_plan(p)
+        self.accepted("approve", "2 change: one more test")
+        self.project.update_state(2, lambda d: d.update(reached="tune"))
+        p["targets"][0]["max"] = 70
+        self.put_plan(p)
+        self.accepted("approve", "2 change: wider")
+        self.assertEqual(self.data()["reached"], "tune")
+
     def test_approved_already(self):
         self.planning()
         self.accepted("approve", "2")
@@ -1115,6 +1186,25 @@ class FinishTests(Base):
         passed = {k: v for k, v in self.PASSED.items() if k != "LampTests.Glows"}
         entry = dict(suite_result(passed), known=sorted(self.PASSED))
         self.alone(texts.tests_not_run("Owner 2 Lamp", ["LampTests.Glows"]), {"results": {"Unit": entry}})
+
+    def test_old_results_in_the_wrap_up_keep_it_open(self):
+        old = {"reached": "tune", "results": {"Unit": suite_result(self.PASSED, OLD)}}
+        proj = self.ready(old)
+        self.assertEqual(state.compute(proj, 2).status, "wrap-up")
+        text = self.refused("finish", "2")
+        for label in ("Owner 1 Moth", "Owner 2 Lamp", "Owner 3 Keeper"):
+            self.assertIn(texts.tests_old(label), text)
+        self.assertIn(texts.suite_old("Unit"), text)
+        self.assertTrue(text.endswith(texts.next_line("summarize-phase", 2)))
+        self.assertIn(texts.build_is_over(2, "wrap-up"), self.refused("build", "2"))
+        self.ready(dict(old, results={"Unit": suite_result(self.PASSED)}))
+        self.accepted("finish", "2")
+
+    def test_a_run_of_one_script_in_the_wrap_up_keeps_it_open(self):
+        for tests in ({"MothTests.Turns": "passed", "MothTests.Dies": "passed"}, {"GameTests.Starts": "passed"}):
+            proj = self.ready({"reached": "tune", "results": {"Unit": suite_result(tests)}})
+            self.assertEqual(state.compute(proj, 2).status, "wrap-up")
+            self.assertIn(texts.tests_not_run("Owner 2 Lamp", ["LampTests.Glows"]), self.refused("finish", "2"))
 
     def test_target_without_value_or_reason(self):
         self.alone(texts.target_open("wins"), {"log": self.LOG[1:]})

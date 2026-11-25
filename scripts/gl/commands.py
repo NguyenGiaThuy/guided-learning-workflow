@@ -182,7 +182,7 @@ def _start(project, n, rest):
         _add(carried, data.get("carried") or [])
         _leave_previous(project, n, reason, carried)
         _create_files(project, n)
-        for key in ("skip", "turn", "part", "planHash", "branch", "locked", "handed", "tasksDone"):
+        for key in ("skip", "turn", "part", "planHash", "branch", "locked", "handed", "tasksDone", "reached", "workHash"):
             data.pop(key, None)   # left over if the phase was skipped before
         data["status"] = "planning"
         if carried:
@@ -259,13 +259,18 @@ def _accept_change(project, n, data, reason):
     gaps = plan_gaps(project, n)
     if gaps:
         raise _gap_stop(project, n, gaps, "approve-phase")
-    changed = _handed_changes(project, data, store.read(path))
+    plan = store.read(path)
+    changed = _handed_changes(project, data, plan)
     if changed:
         raise _refuse([texts.handed_changed(n)] + [texts.bullet(c) for c in changed], here)
     new = store.file_hash(path)
     data.setdefault("changes", []).append({"time": store.now(), "reason": reason,
                                            "from": data.get("planHash"), "to": new})
     data["planHash"] = new
+    work = state.work_hash(plan)
+    if data.get("workHash") != work:
+        data.pop("reached", None)
+    data["workHash"] = work
 
 
 def _approve(project, n, rest):
@@ -284,8 +289,10 @@ def _approve(project, n, rest):
             gaps = plan_gaps(project, n)
             if gaps:
                 raise _gap_stop(project, n, gaps, "start-phase")   # planning goes on
-            data.update(status="build", planHash=store.file_hash(project.plan_path(n)), branch=_branch(project))
-            count = len(store.read(project.plan_path(n))["scripts"])
+            plan = store.read(project.plan_path(n))
+            data.update(status="build", planHash=store.file_hash(project.plan_path(n)), branch=_branch(project),
+                        workHash=state.work_hash(plan))
+            count = len(plan["scripts"])
             lines[:] = [texts.approved(n)] + ([texts.few_scripts_note(count)] if count < 3 else [])
         else:
             st = state.compute(project, n)

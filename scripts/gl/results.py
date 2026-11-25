@@ -109,8 +109,11 @@ def record(project, n, suite, path, check=None):
     """Store the passed and failed tests of a result file under results[suite] of phase n, and the
     names of the skipped ones, which only count as seen.
 
+    Also notes that the phase has come to the tuning, if these results show it.
     Returns the passed and failed tests. check(state) is called inside the update and may raise to refuse it.
     """
+    from .state import mark_reached   # state needs this module
+
     suites = project.settings.get("suites", [])
     if suite not in suites:
         raise ResultError(texts.result_unknown_suite(suite, suites))
@@ -139,6 +142,7 @@ def record(project, n, suite, path, check=None):
         seen |= {k for k, v in found.items() if v == "skipped"}
         stored[suite]["skipped"] = sorted(seen - set(stored[suite]["tests"]))
         stored[suite]["known"] = sorted(set(known(old)) | set(known(stored[suite])))
+        mark_reached(project, n, state)
 
     project.update_state(n, apply)
     return tests

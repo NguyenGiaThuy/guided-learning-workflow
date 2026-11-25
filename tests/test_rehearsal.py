@@ -535,6 +535,19 @@ class SimulationTests(Base):
                                  "MothTests.Chases": "passed", "MothTests.Rests": "passed",
                                  "LanternTests.Burns": "failed", "LanternTests.Shines": "failed"})
 
+    def test_pass_notes_that_the_tuning_is_reached(self):
+        self.cut("src/Moth.cs", "TODO(owner")
+        self.cli("rehearse", "pass")   # part 2 is not handed over yet
+        self.assertNotIn("reached", store.read(self.active().state_path(2)))
+        self.active().update_state(2, lambda d: d.update(part=1, turn="owner"))
+        self.cut("src/Lantern.cs", "TODO(owner")
+        self.cli("rehearse", "pass")
+        self.assertEqual(store.read(self.active().state_path(2))["reached"], "tune")
+        for name in ("Moth", "Lantern"):   # an edit while tuning
+            os.utime(str(self.fake / "src" / (name + ".cs")), (time.time() + 60,) * 2)
+        st = self.compute()
+        self.assertEqual((st.status, st.scripts[0].status), ("tune", "unknown"))
+
     def test_results_need_a_phase_in_build(self):
         self.active().update_state(2, lambda d: d.update(status="done"))
         self.assertEqual(self.cli("rehearse", "pass")[0], 1)

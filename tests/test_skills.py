@@ -176,7 +176,9 @@ class RuleTests(unittest.TestCase):
 
     def test_all_tests_are_run_and_recorded(self):
         self.says("summarize-phase", "run ALL owner tests", "every suite", "One saved file makes all results old",
-                  "Before the first tweak", "Run and record every whole suite")
+                  "Before the first tweak", "Run and record every whole suite",
+                  "Old results during tuning are run again before `/finish-phase`",
+                  "failing tests send the phase back to build")
         self.says("build-phase", "smoke test")
 
     def test_the_phase_files_are_committed_before_the_merge(self):

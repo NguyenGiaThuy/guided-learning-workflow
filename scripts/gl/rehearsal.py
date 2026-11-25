@@ -255,6 +255,7 @@ def _simulate_tests(active, good):
             tests = (stored.get(suite) or {}).get("tests") or {}
             tests = {k: "passed" for k in tests if not any(results.matches(t, k) for t in outcomes)}
             stored[suite] = {"time": _now(active), "tests": dict(tests, **outcomes) if i == 0 else tests}
+        state.mark_reached(active, n, data)
 
     active.update_state(n, apply)
 

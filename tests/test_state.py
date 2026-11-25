@@ -7,7 +7,7 @@ from unittest import mock
 
 import helpers
 from helpers import FRESH, OLD, plan, script, shell, suite_result
-from gl import project, state, texts
+from gl import project, render, state, texts
 
 TESTS = ["MothTests.Turns", "MothTests.Dies"]
 ALL = ["1.1", "1.2", "1.3", "1.4", "1.5"]
@@ -309,6 +309,87 @@ class StatusTests(Base):
         helpers.write_json(proj.state_path(2), {"status": "build"})
         s = state.compute(proj, 2)
         self.assertEqual(s.status, "build")
+
+
+class ReachedTests(Base):
+    """A phase that was in tune once, and whose code was changed after the tests passed."""
+
+    MEASURED = [{"kind": "measure", "target": "wins", "value": 50}, {"kind": "reason", "target": "time", "text": "x"}]
+    OLD_PASS = {"Unit": suite_result(PASS, OLD)}
+
+    def reached(self, results=None, left=(), reached="tune", plan_=None, **kw):
+        stored = dict({"reached": reached, "results": self.OLD_PASS if results is None else results,
+                       "log": kw.pop("log", [])}, **kw.pop("stored", {}))
+        plan_ = plan([moth()], targets=StatusTests.TARGETS) if plan_ is None else plan_
+        return self.compute(plan_, left=list(left), stored=stored, **kw)
+
+    def test_old_results_stay_in_tune(self):
+        s = self.reached()
+        self.assertEqual((s.status, s.turn, s.scripts[0].status, s.scripts[0].why), ("tune", "owner", "unknown", "old"))
+        for item in (texts.tests_old("Owner 1 Moth"), texts.suite_old("Unit")):
+            self.assertIn(item, s.open_items)
+        text = render.status(s)
+        self.assertIn(texts.WHY["old"], text)
+        self.assertIn(texts.bullet(texts.suite_old("Unit")), text)
+        self.assertNotIn(texts.owner_turn(0, 1), text)
+        self.assertTrue(text.endswith(texts.next_line("summarize-phase", 2) + "\n"))
+
+    def test_old_results_stay_in_the_wrap_up(self):
+        s = self.reached(log=self.MEASURED)
+        self.assertEqual((s.status, s.scripts[0].status), ("wrap-up", "unknown"))
+        self.assertEqual(render.next_command(s), ("summarize-phase", 2))
+
+    def test_without_the_field_old_results_are_build_as_before(self):
+        for value in (None, "", "build", True, ["tune"]):
+            self.assertEqual(self.reached(reached=value).status, "build", value)
+
+    def test_results_that_are_missing_or_not_run_stay(self):
+        for results_ in ({}, {"Unit": suite_result({"MothTests.Turns": "passed"})}, {"Unit": suite_result({"A.B": "passed"})}):
+            s = self.reached(results_)
+            self.assertEqual((s.status, s.scripts[0].why), ("tune", "not run"))
+
+    def test_a_fresh_failing_owner_test_goes_back(self):
+        s = self.reached({"Unit": suite_result(dict(PASS, **{"MothTests.Dies": "failed"}))})
+        self.assertEqual((s.status, s.scripts[0].failing), ("build", ["MothTests.Dies"]))
+        self.assertIn(texts.owner_turn(0, 1), render.status(s))
+
+    def test_an_old_failing_owner_test_does_not(self):
+        s = self.reached({"Unit": suite_result(dict(PASS, **{"MothTests.Dies": "failed"}), OLD)})
+        self.assertEqual(s.status, "tune")
+
+    def test_a_fresh_failing_test_that_is_not_planned_does_not(self):
+        s = self.reached({"Unit": suite_result(dict(PASS, **{"GameTests.Ends": "failed"}))})
+        self.assertEqual(s.status, "tune")
+        self.assertIn(texts.suite_failing("Unit", ["GameTests.Ends"]), s.open_items)
+
+    def test_a_fresh_failure_counts_also_if_another_suite_is_old(self):
+        both = {"Unit": suite_result(dict(PASS, **{"MothTests.Dies": "failed"})), "Play": suite_result(PASS, OLD)}
+        s = self.reached(both, settings={"suites": ["Unit", "Play"]})
+        self.assertEqual((s.status, s.scripts[0].status), ("build", "unknown"))
+
+    def test_a_todo_that_is_back_goes_back(self):
+        for left in (["1.2"], ["1.9"]):   # also one that is not planned, in the file of the script
+            s = self.reached(left=left)
+            self.assertEqual((s.status, s.next_todo), ("build", left[0]))
+
+    def test_a_missing_file_goes_back(self):
+        self.reached()
+        (self.project.root / "src" / "Moth.cs").unlink()
+        s = state.compute(self.project, 2)
+        self.assertEqual((s.status, s.problems),
+                         ("build", [texts.script_file_missing("Owner 1 Moth", "src/Moth.cs")]))
+
+    def test_a_missing_plan_goes_back(self):
+        self.reached()
+        self.project.plan_path(2).unlink()
+        s = state.compute(self.project, 2)
+        self.assertEqual((s.status, s.problems), ("build", [texts.plan_missing("phase-2.plan.json")]))
+
+    def test_a_part_that_is_not_handed_over_goes_back(self):
+        scripts = [moth(), script(2, "Orbit", ["2.1"], [])]
+        parts = [{"name": "A", "tasks": [], "scripts": [1]}, {"name": "B", "tasks": [], "scripts": [2]}]
+        s = self.reached({"Unit": suite_result(PASS)}, plan_=plan(scripts, parts))
+        self.assertEqual((s.status, s.turn, s.part), ("build", "ai", 1))
 
 
 class OpenItemTests(Base):
