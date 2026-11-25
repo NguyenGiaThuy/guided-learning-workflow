@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="MothTests" tests="4" failures="1" skipped="1">
+    <testcase classname="LanternKeeper.MothTests" name="Turns" time="0.01" />
+    <testcase classname="LanternKeeper.MothTests" name="FliesToLight" time="0.02" />
+    <testcase classname="LanternKeeper.MothTests" name="Dies" time="0.01">
+      <failure message="Expected 0 but was 1" />
+    </testcase>
+    <testcase classname="LanternKeeper.MothTests" name="Sleeps" time="0">
+      <skipped />
+    </testcase>
+  </testsuite>
+</testsuites>

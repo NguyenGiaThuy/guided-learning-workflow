@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="0" testcasecount="4" result="Failed" total="4" passed="2" failed="1" skipped="1">
+  <test-suite type="Assembly" name="LanternKeeper.Tests.dll" result="Failed">
+    <test-suite type="TestFixture" name="MothTests" fullname="LanternKeeper.MothTests" result="Failed">
+      <test-case id="1" name="Turns" fullname="LanternKeeper.MothTests.Turns" result="Passed" duration="0.01" />
+      <test-case id="2" name="FliesToLight" fullname="LanternKeeper.MothTests.FliesToLight" result="Passed" duration="0.02" />
+      <test-case id="3" name="Dies" fullname="LanternKeeper.MothTests.Dies" result="Failed" duration="0.01">
+        <failure><message>Expected 0 but was 1</message></failure>
+      </test-case>
+      <test-case id="4" name="Sleeps" fullname="LanternKeeper.MothTests.Sleeps" result="Skipped" label="Explicit" duration="0" />
+    </test-suite>
+  </test-suite>
+</test-run>
