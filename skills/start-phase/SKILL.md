@@ -9,6 +9,8 @@ A hook has already checked this command and made the files. Its text is in your 
 
 If there is no such text, guided learning is not set up here, or its hooks do not run. Say that `/setup-learning` comes first, and stop.
 
+If the text says "Planning would start here", this is a rehearsal: show the text and stop. Plan nothing.
+
 Plan the phase with the owner. Write only `phase-N.plan.json` and `phase-N.md`, in the folder the hook names, and, with Superpowers, its design and plan documents, outside of the code folders. Write no code. Do not edit `phase-N.json`.
 
 Read the plan and `phase-N.md` first: the planning may have begun in another chat. Keep what is there, and go on with the first block that is missing.

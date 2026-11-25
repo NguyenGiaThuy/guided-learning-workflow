@@ -3,7 +3,7 @@ import os
 import subprocess
 
 from . import markdown, results, scan, store, texts
-from .project import norm
+from .project import LEARNING, norm
 
 DETACHED = texts.DETACHED
 BRANCH_STATUSES = ("build", "tune", "wrap-up")
@@ -80,7 +80,33 @@ class PhaseState:
         self.project = None           # the project it was worked out for
 
 
-# --- git (the one seam for the branch) ------------------------------------------------------
+# --- git, or sim.json in a rehearsal (the one seam for the branch) ----------------------------
+
+def sim_path(project):
+    """Where a rehearsal keeps what stands in for git."""
+    return project.root / LEARNING / "local" / "sim.json"
+
+
+def sim(project):
+    """{"branch": checked-out branch, "merged": [branches]} of a rehearsal. Without a usable
+    sim.json: the branch of the latest phase that has one, and nothing merged."""
+    try:
+        data = store.read(sim_path(project))
+    except (store.BadJson, OSError):
+        data = {}
+    branch, merged = data.get("branch"), data.get("merged")
+    return {"branch": branch if isinstance(branch, str) and branch else phase_branch(project),
+            "merged": [b for b in merged if isinstance(b, str)] if isinstance(merged, list) else []}
+
+
+def phase_branch(project):
+    """The branch of the latest phase that has one, or None."""
+    for n in reversed(project.phase_numbers()):
+        branch = store.read(project.state_path(n)).get("branch")
+        if branch:
+            return branch
+    return None
+
 
 def _git(project, *args):
     """Run git quietly in the project folder; return (returncode, stdout), or None if it cannot run.
@@ -103,6 +129,8 @@ def _git(project, *args):
 
 def current_branch(project):
     """The checked-out branch; DETACHED on a detached HEAD; None without git or repository."""
+    if project.is_rehearsal:
+        return sim(project)["branch"]
     found = _git(project, "symbolic-ref", "-q", "HEAD")
     if found is None:
         return None
@@ -148,6 +176,8 @@ def is_merged(project, branch):
     checked out that is always so; then it is the main branch, or is contained in it, or there
     is no main branch to merge into.
     """
+    if project.is_rehearsal:
+        return branch in sim(project)["merged"]
     ref = "refs/heads/" + branch
     if not _ref_exists(project, ref):
         return True

@@ -128,7 +128,7 @@ def _leave_previous(project, n, reason, carried):
         if st.branch and not state.is_merged(project, st.branch):
             raise _refuse([texts.previous_not_merged(n, st.branch)], texts.next_line("start-phase", n))
     elif st.status != "skipped":
-        items = ([texts.wrong_branch(st.branch, st.wrong_branch)] if st.wrong_branch else []) + st.open_items
+        items = ([_wrong_branch_text(st)] if st.wrong_branch else []) + st.open_items
         raise _refuse([texts.previous_open(n)] + _open_lines(items), render.next_line(st))
     _add(carried, _carried_lines(project, prev))
 
@@ -162,8 +162,11 @@ def _start(project, n, rest):
 
 
 def _planning_lines(project, n, data):
-    lines = [texts.planning_started(n, _docs_path(project, project.plan_path(n)),
-                                    _docs_path(project, project.md_path(n)))]
+    if project.is_rehearsal:
+        lines = [texts.rehearsal_planning(n)]
+    else:
+        lines = [texts.planning_started(n, _docs_path(project, project.plan_path(n)),
+                                        _docs_path(project, project.md_path(n)))]
     carried = data.get("carried") or []
     if carried:
         lines += [texts.CARRIED_HEADING] + [texts.bullet(c) for c in carried]
@@ -235,9 +238,13 @@ def _approve(project, n, rest):
 
 # --- build -------------------------------------------------------------------------------------
 
+def _wrong_branch_text(st):
+    return texts.wrong_branch(st.branch, st.wrong_branch, st.project.is_rehearsal)
+
+
 def _wrong_branch(st):
     if st.wrong_branch:
-        raise _refuse([texts.wrong_branch(st.branch, st.wrong_branch)], render.next_line(st))
+        raise _refuse([_wrong_branch_text(st)], render.next_line(st))
 
 
 def _open_lines(items):

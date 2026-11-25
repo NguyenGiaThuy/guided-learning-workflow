@@ -1,0 +1,14 @@
+{
+  "docs": "Docs/learning",
+  "code": [
+    "src"
+  ],
+  "extensions": [
+    ".cs"
+  ],
+  "ownerMark": "[Explicit(\"Owner\")]",
+  "suites": [
+    "Unit"
+  ],
+  "background": "C# web developer"
+}

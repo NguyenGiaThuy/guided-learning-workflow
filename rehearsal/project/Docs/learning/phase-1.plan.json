@@ -1,0 +1,57 @@
+{
+  "phase": 1,
+  "concepts": [
+    {
+      "id": "loop",
+      "name": "Game loop"
+    }
+  ],
+  "parts": [
+    {
+      "name": "Keeper",
+      "tasks": [
+        "Shell of the keeper and its test"
+      ],
+      "scripts": [
+        1
+      ]
+    }
+  ],
+  "scripts": [
+    {
+      "id": 1,
+      "name": "Keeper",
+      "path": "src/Keeper.cs",
+      "concept": "loop",
+      "todos": [
+        "1.1"
+      ],
+      "tests": [
+        "KeeperTests.Walks"
+      ]
+    }
+  ],
+  "targets": [
+    {
+      "id": "cross",
+      "text": "Seconds to cross the meadow",
+      "measure": "one walk with a stopwatch",
+      "settings": [
+        "Keeper.Speed"
+      ],
+      "min": 4,
+      "max": 6
+    }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "concept": "loop",
+      "text": "Why does the keeper walk the same distance on every computer?",
+      "points": [
+        "time since the last frame",
+        "speed per second"
+      ]
+    }
+  ]
+}

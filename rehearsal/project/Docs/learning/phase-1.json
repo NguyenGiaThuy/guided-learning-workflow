@@ -1,0 +1,56 @@
+{
+  "status": "done",
+  "planHash": "d36e214d2f3bbb5523dd18f08af63225f6eb0ded43f18f910bd8de7bd9069863",
+  "branch": "stage-1",
+  "turn": "owner",
+  "part": 0,
+  "tasksDone": [
+    {
+      "part": 0,
+      "index": 0
+    }
+  ],
+  "locked": [],
+  "results": {
+    "Unit": {
+      "time": 0,
+      "tests": {
+        "KeeperTests.Walks": "passed"
+      }
+    }
+  },
+  "log": [
+    {
+      "time": "2026-01-10T10:00:00+00:00",
+      "kind": "help",
+      "script": 1,
+      "level": 2
+    },
+    {
+      "time": "2026-01-11T10:00:00+00:00",
+      "kind": "tweak",
+      "change": "Keeper.Speed 2 to 3",
+      "predicted": "down",
+      "target": "cross",
+      "before": 8,
+      "after": 5.5,
+      "right": true
+    },
+    {
+      "time": "2026-01-11T10:00:00+00:00",
+      "kind": "measure",
+      "target": "cross",
+      "value": 5.5
+    },
+    {
+      "time": "2026-01-12T10:00:00+00:00",
+      "kind": "rating",
+      "concept": "loop",
+      "rating": "with help"
+    }
+  ],
+  "closing": {
+    "pending": false,
+    "tries": 0
+  }
+}

@@ -3,7 +3,7 @@ name: summarize-phase
 description: "Step 4: YOUR TURN. Shows your progress and resumes your coding, tuning and wrap-up."
 argument-hint: "[N]"
 disable-model-invocation: true
-allowed-tools: Bash(bash *run.sh* status*), Bash(bash *run.sh* log *), Bash(bash *run.sh* record-tests *)
+allowed-tools: Bash(bash *run.sh* status*), Bash(bash *run.sh* log *), Bash(bash *run.sh* record-tests *), Bash(bash *run.sh* rehearse *)
 ---
 
 The status of the phase, worked out from the project:
@@ -12,6 +12,7 @@ The status of the phase, worked out from the project:
 
 Show it first, unchanged. Do not work it out again. Then do what fits it, and only that. End every answer with the next step.
 
+- **REHEARSAL**: its rules come first: the other folder, no git, and simulated tests in place of real ones. Otherwise do the same as always.
 - **Not set up**: say that `/setup-learning` comes first, and stop. **No phase**: name the command it names, and stop.
 - **Wrong branch**: say so, with the command to switch, and stop.
 - **Planning or skipped**: name the next command and stop.

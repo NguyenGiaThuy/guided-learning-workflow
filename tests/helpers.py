@@ -110,6 +110,12 @@ def set_switch(root, text):
     p.write_bytes(text if isinstance(text, bytes) else text.encode("utf-8"))
 
 
+def mark_seen(root, run=1):
+    """Note config.json as seen, so that the rehearsal folder of a test is not made again."""
+    learning = Path(root) / ".claude" / "learning"
+    write_json(learning / "local" / "seen.json", {"mtime": (learning / "config.json").stat().st_mtime_ns, "run": run})
+
+
 def full_plan(n=2, parts=None):
     """A complete plan: three scripts (Moth, Lamp, Keeper) in one part, one concept, one target."""
     scripts = [script(1, "Moth", ["1.1", "1.2"], ["MothTests.Turns", "MothTests.Dies"]),

@@ -1,0 +1,39 @@
+{
+  "status": "build",
+  "carried": [
+    "Weak concept: Game loop",
+    "To do differently: write the numbers down before tuning"
+  ],
+  "planHash": "1685d2a535e38b657a8e525a000d791c0366bc969b9ff2c36df309cc026ceb1b",
+  "branch": "stage-2",
+  "turn": "owner",
+  "part": 0,
+  "tasksDone": [
+    {
+      "part": 0,
+      "index": 0
+    }
+  ],
+  "locked": [
+    "src/Moth.cs"
+  ],
+  "results": {
+    "Unit": {
+      "time": 0,
+      "tests": {
+        "KeeperTests.Walks": "passed",
+        "MothTests.Turns": "passed",
+        "MothTests.Chases": "passed",
+        "MothTests.Rests": "failed"
+      }
+    }
+  },
+  "log": [
+    {
+      "time": "2026-01-20T10:00:00+00:00",
+      "kind": "help",
+      "script": 1,
+      "level": 1
+    }
+  ]
+}

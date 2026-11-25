@@ -12,7 +12,14 @@ def norm(path):
     return os.path.normcase(os.path.realpath(path))
 
 
-def _is_rehearsal_folder(folder):
+def inside(target, folder):
+    """True if target is the folder or lies in it, links resolved."""
+    target, folder = norm(target), norm(folder)
+    return target == folder or target.startswith(folder.rstrip(os.sep) + os.sep)
+
+
+def is_rehearsal_folder(folder):
+    """True for a folder .claude/learning/rehearsal, by its name."""
     p = Path(folder)
     names = [os.path.normcase(x) for x in (p.parent.parent.name, p.parent.name, p.name)]
     return names == [".claude", "learning", "rehearsal"]
@@ -46,9 +53,18 @@ class Project:
         """The project the commands work on: self, or the fake one in rehearsal/."""
         if not self.rehearsal:
             return self
-        folder = self.root / LEARNING / "rehearsal"
+        folder = self.rehearsal_folder
         pj = folder / LEARNING / "project.json"
         return Project(folder, store.read(pj))
+
+    @property
+    def rehearsal_folder(self):
+        return self.root / LEARNING / "rehearsal"
+
+    @property
+    def is_rehearsal(self):
+        """True for the fake project itself. Its branch, merges and test results are simulated."""
+        return is_rehearsal_folder(self.root)
 
     @property
     def docs(self):
@@ -94,6 +110,10 @@ class Project:
 
         return store.update(path, fn, after=note)
 
+    def update_local(self, name, fn, after=None):
+        """Every read-modify-write of a file in local/, which holds no phase."""
+        return store.update(self.root / LEARNING / "local" / name, fn, after=after)
+
 
 def find(cwd):
     """Walk up from cwd to a folder with .claude/learning/project.json; None if there is none.
@@ -104,7 +124,7 @@ def find(cwd):
     folder = Path(os.path.realpath(cwd))
     for d in [folder] + list(folder.parents):
         pj = d / LEARNING / "project.json"
-        if pj.is_file() and not _is_rehearsal_folder(d):
+        if pj.is_file() and not is_rehearsal_folder(d):
             rehearsal, problem = _read_switch(d)
             return Project(d, store.read(pj), rehearsal, problem)
     return None

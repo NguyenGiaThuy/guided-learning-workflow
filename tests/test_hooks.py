@@ -66,6 +66,7 @@ class Base(unittest.TestCase):
         fake = self.root / ".claude" / "learning" / "rehearsal"
         self.make(stored or {"locked": ["src/Fake.cs"]}, files={"src/Fake.cs": MOTH}, root=fake)
         helpers.set_switch(self.root, '{"rehearsal": true}')
+        helpers.mark_seen(self.root)
         return fake
 
     def data(self, n=2, root=None):

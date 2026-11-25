@@ -2,6 +2,8 @@
 import os
 import re
 
+from .project import is_rehearsal_folder
+
 TODO = re.compile(r"TODO\(owner (\d+)\.(\d+)\)")
 
 
@@ -39,7 +41,7 @@ def _code_files(project):
     found = []
     for d in project.code_dirs:
         for folder, dirs, files in os.walk(d):
-            dirs.sort()
+            dirs[:] = sorted(x for x in dirs if not is_rehearsal_folder(os.path.join(folder, x)))
             for name in sorted(files):
                 if name.lower().endswith(exts) and exts:
                     found.append(os.path.join(folder, name))

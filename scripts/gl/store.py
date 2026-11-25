@@ -32,7 +32,7 @@ def now():
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def _retry_permission(action, seconds=2.0):
+def retry_permission(action, seconds=2.0):
     """Windows raises PermissionError while another process has the file open; retry briefly."""
     end = time.monotonic() + seconds
     while True:
@@ -50,7 +50,7 @@ def read_bytes(path):
         with open(path, "rb") as f:
             return f.read()
 
-    return _retry_permission(load)
+    return retry_permission(load)
 
 
 def read(path):
@@ -90,7 +90,7 @@ def _new_file(folder):
     """
     path = os.path.join(folder, ".tmp-" + uuid.uuid4().hex)
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0)
-    return _retry_permission(lambda: os.open(path, flags, 0o666)), path
+    return retry_permission(lambda: os.open(path, flags, 0o666)), path
 
 
 def write_text(path, text):
@@ -105,7 +105,7 @@ def write_text(path, text):
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(text.encode("utf-8"))
-        _retry_permission(lambda: os.replace(tmp, path))
+        retry_permission(lambda: os.replace(tmp, path))
     except BaseException:
         try:
             os.remove(tmp)
@@ -185,7 +185,7 @@ def _release(lock, token):
     if not _owns(lock, token):
         return
     try:
-        _retry_permission(lambda: os.remove(lock))
+        retry_permission(lambda: os.remove(lock))
     except FileNotFoundError:
         pass
 

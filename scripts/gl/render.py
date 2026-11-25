@@ -79,7 +79,8 @@ def status(st):
     """The status of a phase, ending with the next command."""
     n = st.n
     if st.wrong_branch:
-        lines = [texts.phase_header(n, st.status), texts.wrong_branch(st.branch, st.wrong_branch),
+        lines = [texts.phase_header(n, st.status),
+                 texts.wrong_branch(st.branch, st.wrong_branch, st.project.is_rehearsal),
                  texts.next_line("summarize-phase", n)]
         return "\n".join(lines) + "\n"
     if st.status == "planning":
@@ -106,7 +107,8 @@ def status(st):
     return "\n".join(lines) + "\n"
 
 
-def _run_number(project):
+def run_number(project):
+    """The run of the rehearsal that is going on, 1 if it is not noted."""
     try:
         run = store.read(project.root / ".claude" / "learning" / "local" / "seen.json").get("run")
     except (store.BadJson, OSError):
@@ -117,4 +119,4 @@ def _run_number(project):
 def one_line(project):
     """The status line for SessionStart. `project` is the outer (real) project."""
     return texts.hooks_line(version.VERSION, version.plugin_hash(), project.rehearsal,
-                            _run_number(project) if project.rehearsal else None, project.problem)
+                            run_number(project) if project.rehearsal else None, project.problem)

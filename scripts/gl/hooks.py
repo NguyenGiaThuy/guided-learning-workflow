@@ -11,9 +11,10 @@ import time
 from collections import namedtuple
 from pathlib import Path
 
-from . import commands, project, render, scan, store, texts
-from .project import LEARNING, norm
+from . import commands, project, rehearsal, render, scan, store, texts
+from .project import LEARNING, inside, norm
 
+REHEARSAL_FILES = (LEARNING / "rehearsal").as_posix() + "/"
 EDIT_TOOLS = {"Edit": "file_path", "Write": "file_path", "MultiEdit": "file_path",
               "NotebookEdit": "notebook_path"}
 POST_EVENTS = ("PostToolUse", "PostToolUseFailure")
@@ -25,6 +26,9 @@ _NOTE_PAUSE = 0.01
 # One file the hooks compare before and after a tool call: its name relative to the chat's project,
 # the file itself, the project.json of its project, and for a phase-N.json the script's note of it.
 Watched = namedtuple("Watched", "name path home note")
+
+# Why an edit is not allowed: workflow, locked, planning, unbuilt or todo, and the text.
+Refusal = namedtuple("Refusal", "kind text")
 
 
 class HookError(Exception):
@@ -94,11 +98,6 @@ def _is_approved(data):
     return _status(data) == "build" or bool(data.get("planHash"))
 
 
-def _inside(target, folder):
-    target, folder = norm(target), norm(folder)
-    return target == folder or target.startswith(folder.rstrip(os.sep) + os.sep)
-
-
 def _name(p, path):
     """A path as the owner knows it, relative to the project."""
     try:
@@ -111,7 +110,7 @@ def _name(p, path):
 
 def _workflow_refusal(p, phases, target, name):
     learning = p.root / LEARNING
-    if _inside(target, learning / "local"):
+    if inside(target, learning / "local") or inside(target, learning / "rehearsal-reports"):
         return texts.refused_local(name)
     if norm(target) in (norm(learning / "project.json"), norm(learning / "config.json")):
         return texts.refused_settings(name)
@@ -129,11 +128,14 @@ def _workflow_refusal(p, phases, target, name):
 
 
 def _in_code(p, target):
-    """True for a file in a code folder. Plans and notes are no code, also if a code folder holds them."""
+    """True for a file in a code folder. Plans, notes and .claude/learning with the rehearsal are no code,
+    also if a code folder holds them."""
+    if inside(target, p.root / LEARNING):
+        return False
     if norm(os.path.dirname(target)) == norm(p.docs) and re.fullmatch(
             r"phase-[0-9]+(\.plan\.json|\.md)", os.path.normcase(os.path.basename(target))):
         return False
-    return any(_inside(target, d) for d in p.code_dirs)
+    return any(inside(target, d) for d in p.code_dirs)
 
 
 def _code_refusal(p, phases, target, name):
@@ -141,9 +143,9 @@ def _code_refusal(p, phases, target, name):
         return None
     for n, data in phases:
         if _status(data) == "planning":
-            return texts.refused_code_planning(name, n)
+            return Refusal("planning", texts.refused_code_planning(name, n))
         if _status(data) == "build" and not data.get("turn"):
-            return texts.refused_code_unbuilt(name, n)
+            return Refusal("unbuilt", texts.refused_code_unbuilt(name, n))
     return None
 
 
@@ -163,19 +165,19 @@ def _is_planned(p, target):
 
 def _todo_refusal(p, target, name, lost):
     if lost and (_in_code(p, target) or _is_planned(p, target)):
-        return texts.refused_todo(name, lost)
+        return Refusal("todo", texts.refused_todo(name, lost))
     return None
 
 
 def _refusal(p, target, lost):
-    """Why the project does not allow an edit of the file, or None."""
+    """The Refusal of an edit of the file by the project, or None."""
     name, phases = _name(p, target), _phases(p)
     text = _workflow_refusal(p, phases, target, name)
     if text:
-        return text
+        return Refusal("workflow", text)
     for n, data in phases:
         if any(norm(p.root / path) == norm(target) for path in _locked(data)):
-            return texts.refused_locked(name, n)
+            return Refusal("locked", texts.refused_locked(name, n))
     return _code_refusal(p, phases, target, name) or _todo_refusal(p, target, name, lost)
 
 
@@ -255,10 +257,17 @@ def _refuse_edit(found, data, target):
     guarding = _guarding(found, target)
     lost = _lost_todos(data, target) if guarding else []
     for p in guarding:
-        text = _refusal(p, target, lost)
-        if text:
-            return _deny(text)
+        refused = _refusal(p, target, lost)
+        if refused:
+            return _deny("\n".join([refused.text] + _note_refusal(found, p, refused.kind, data)))
     return None
+
+
+def _note_refusal(found, p, kind, data):
+    """Tick a refused edit of the fake project in the rehearsal of this chat."""
+    if found and found.rehearsal and kind in rehearsal.REFUSED and norm(p.root) == norm(found.rehearsal_folder):
+        return rehearsal.note(found, rehearsal.REFUSED[kind], data.get("session_id"))
+    return []
 
 
 def _pre_tool_use(found, data, cwd):
@@ -340,8 +349,13 @@ def _take_snapshot(outer, tool_use_id):
     if path is None:
         return
     files = {w.name: {"hash": _hash(w.path), "note": w.note} for w in _watched(outer)}
-    store.write(path, {"files": files})
+    store.write(path, {"files": files, "run": _run(outer)})
     _delete_old(path.parent)
+
+
+def _run(outer):
+    """The run of the rehearsal; None if there is none."""
+    return render.run_number(outer) if outer.rehearsal else None
 
 
 def _delete_old(folder):
@@ -355,19 +369,20 @@ def _delete_old(folder):
 
 
 def _read_snapshot(path):
-    """The files of a snapshot, which is deleted; None if there is none."""
+    """(files, run) of a snapshot, which is deleted; (None, None) if there is none."""
     if not path.is_file():
-        return None
+        return None, None
     try:
-        files = store.read(path).get("files")
+        data = store.read(path)
     finally:
         try:
             os.remove(path)
         except OSError:
             pass   # deleted later, when it is a day old
+    files = data.get("files")
     if not isinstance(files, dict) or not all(isinstance(f, dict) for f in files.values()):
         raise HookError(texts.HOOK_SNAPSHOT)
-    return files
+    return files, data.get("run")
 
 
 # --- PostToolUse -----------------------------------------------------------------------------------------------
@@ -415,8 +430,10 @@ def _changed(root, files, outer):
 
 def _report(event, root, outer, data):
     path = _snapshot_path(root, data.get("tool_use_id"))
-    files = _read_snapshot(path) if path else None
+    files, run = _read_snapshot(path) if path else (None, None)
     names = _changed(root, files, outer) if files is not None else []
+    if outer and outer.rehearsal and run != _run(outer):   # made again meanwhile, by the script
+        names = [n for n in names if not n.startswith(REHEARSAL_FILES)]
     if not names:
         return None
     answer = {"systemMessage": texts.files_changed_owner(names)}
@@ -449,15 +466,16 @@ def _report_lost_project(event, data, cwd):
 
 def _session_start(found, data, cwd):
     line = render.one_line(found)
+    context = line + "\n" + rehearsal.rules(found) if found.rehearsal else line
     return {"systemMessage": line,
-            "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": line}}
+            "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}}
 
 
 def _user_prompt_submit(found, data, cwd):
     parsed = commands.parse(data.get("prompt"))
     if parsed is None or parsed[0] == "setup-learning":   # the skill handles it
         return None
-    out = commands.run(found, *parsed)
+    out = rehearsal.run(found, *parsed, session=data.get("session_id"))
     if not out.ok:
         return {"decision": "block", "reason": out.text}
     return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": out.text}}
@@ -505,7 +523,7 @@ def _stop(found, data, cwd):
     active = found.active
     message = data.get("last_assistant_message")
     message = message if isinstance(message, str) else ""
-    asked, given_up = [], []
+    asked, given_up, warnings = [], [], []
     for n, state in _phases(active):
         if not _pending(state):
             continue
@@ -516,11 +534,13 @@ def _stop(found, data, cwd):
             asked.append(text)
         elif again is False and not present:
             given_up.append(text)
+        elif again is False and found.rehearsal:
+            warnings += rehearsal.note(found, "closing-text", data.get("session_id"))
     answer = {}
     if asked:
         answer.update(decision="block", reason=texts.closing_asked("\n".join(asked)))
-    if given_up:
-        answer["systemMessage"] = "\n".join(given_up)
+    if given_up or warnings:
+        answer["systemMessage"] = "\n".join(given_up + warnings)
     return answer or None
 
 
@@ -544,7 +564,7 @@ def _outside(event, data, cwd):
 
 def _error(event, error):
     """The answer of a hook that failed: refuse what can be refused, else only say so."""
-    if isinstance(error, (HookError, store.BadJson, store.LockTimeout, OSError)):
+    if isinstance(error, (HookError, rehearsal.RehearsalError, store.BadJson, store.LockTimeout, OSError)):
         text = texts.hook_error(error)
     else:
         text = texts.unexpected_error(error)
@@ -563,6 +583,7 @@ def handle(event, data, cwd):
         found = project.find(cwd)
         if found is None:
             return _outside(event, data, cwd)
+        rehearsal.sync(found)
         if not isinstance(data, dict):
             raise HookError(texts.HOOK_INPUT)
         return _HANDLERS[event](found, data, cwd)

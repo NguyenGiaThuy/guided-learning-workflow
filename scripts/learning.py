@@ -7,7 +7,7 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", newline="\n")
 
-from gl import commands, hooks, log, project, results, setup, store, texts, version  # noqa: E402
+from gl import commands, hooks, log, project, rehearsal, results, setup, store, texts, version  # noqa: E402
 
 SETUP_FLAG = "--claude-md"
 
@@ -16,11 +16,17 @@ class Refused(Exception):
     """A command line that cannot be carried out, in words for the user."""
 
 
-def _project():
+def _outer():
+    """The project of this folder, with its rehearsal as the switch wants it."""
     found = project.find(os.getcwd())
     if found is None:
         raise Refused(texts.NO_PROJECT)
-    return found.active
+    rehearsal.sync(found)
+    return found
+
+
+def _project():
+    return _outer().active
 
 
 def _phase(argument, command):
@@ -59,10 +65,10 @@ def _from_input(fields):
 def _status(args):
     if project.find(os.getcwd()) is None:   # no error: a failed `!` command keeps the AI from seeing the text
         return True, texts.NO_PROJECT
-    target = _project()
+    outer = _outer()
     argument = " ".join(args)
-    out = commands.run(target, "summarize", argument)
-    nothing_yet = not target.phase_numbers() and (not argument.strip() or commands.split_argument(argument)[0])
+    out = rehearsal.run(outer, "summarize-phase", argument, watch=False)
+    nothing_yet = not outer.active.phase_numbers() and (not argument.strip() or commands.split_argument(argument)[0])
     return out.ok or bool(nothing_yet), out.text
 
 
@@ -89,9 +95,12 @@ def _record_tests(args):
 
 
 def _hand_over(args):
-    target = _project()
-    out = commands.hand_over(target, _phase(" ".join(args), "hand-over"))
+    out = rehearsal.hand_over(_outer(), _phase(" ".join(args), "hand-over"))
     return out.ok, out.text
+
+
+def _rehearse(args):
+    return True, rehearsal.command(_outer(), args)
 
 
 def _setup(args):
@@ -117,7 +126,7 @@ def _version(args):
 
 
 SUBCOMMANDS = {"status": _status, "log": _log, "record-tests": _record_tests, "hand-over": _hand_over,
-               "setup": _setup, "version": _version}
+               "setup": _setup, "rehearse": _rehearse, "version": _version}
 
 
 def _hook(event):
@@ -140,8 +149,8 @@ def main(argv):
         if command is None:
             raise Refused(texts.CLI_USAGE)
         ok, text = command(argv[1:])
-    except (Refused, log.LogError, results.ResultError, setup.SetupError, store.BadJson, store.LockTimeout,
-            OSError) as e:
+    except (Refused, log.LogError, results.ResultError, setup.SetupError, rehearsal.RehearsalError, store.BadJson,
+            store.LockTimeout, OSError) as e:
         ok, text = False, str(e)
     except Exception as e:   # the owner sees a message, never a traceback
         ok, text = False, texts.unexpected_error(e)

@@ -327,7 +327,8 @@ class CliTests(Base):
         rehearsal = self.tmp / ".claude" / "learning" / "rehearsal"
         helpers.make_project(rehearsal, phases={4: {"state": {"status": "planning"}}})
         helpers.set_switch(self.tmp, '{"rehearsal": true}')
-        self.assertTrue(self.cli("status")[1].startswith("Phase 4 - planning"))
+        helpers.mark_seen(self.tmp)
+        self.assertIn("\nPhase 4 - planning", self.cli("status")[1])
 
 
 class RecordCheckTests(Base):

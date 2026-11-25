@@ -1,0 +1,120 @@
+{
+  "phase": 2,
+  "concepts": [
+    {
+      "id": "ai",
+      "name": "Enemy AI"
+    },
+    {
+      "id": "light",
+      "name": "Light and resources"
+    }
+  ],
+  "parts": [
+    {
+      "name": "Moth",
+      "tasks": [
+        "Shell of the moth and its tests"
+      ],
+      "scripts": [
+        1
+      ]
+    },
+    {
+      "name": "Lantern",
+      "tasks": [
+        "Check that the shell of the lantern has both TODOs",
+        "Check that the tests of the lantern have the owner mark"
+      ],
+      "scripts": [
+        2
+      ]
+    }
+  ],
+  "scripts": [
+    {
+      "id": 1,
+      "name": "Moth",
+      "path": "src/Moth.cs",
+      "concept": "ai",
+      "todos": [
+        "1.1",
+        "1.2",
+        "1.3"
+      ],
+      "tests": [
+        "MothTests.Turns",
+        "MothTests.Chases",
+        "MothTests.Rests"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Lantern",
+      "path": "src/Lantern.cs",
+      "concept": "light",
+      "todos": [
+        "2.1",
+        "2.2"
+      ],
+      "tests": [
+        "LanternTests.Burns",
+        "LanternTests.Shines"
+      ]
+    }
+  ],
+  "targets": [
+    {
+      "id": "nights",
+      "text": "Average nights survived",
+      "measure": "20 bot runs",
+      "settings": [
+        "Moth.Speed",
+        "Lantern.OilPerSecond"
+      ],
+      "min": 3,
+      "max": 5
+    },
+    {
+      "id": "oil",
+      "text": "Oil left at dawn, in percent",
+      "measure": "average of 10 bot runs",
+      "settings": [
+        "Lantern.OilPerSecond"
+      ],
+      "min": 10,
+      "max": 30
+    },
+    {
+      "id": "escapes",
+      "text": "Moths that lose the keeper, in percent",
+      "measure": "average of 10 bot runs",
+      "settings": [
+        "Moth.SightRange",
+        "Moth.Speed"
+      ],
+      "min": 20
+    }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "concept": "ai",
+      "text": "How does a moth choose its target, and why does it rest?",
+      "points": [
+        "nearest lantern",
+        "only in range",
+        "two limits against switching back and forth"
+      ]
+    },
+    {
+      "id": "q2",
+      "concept": "light",
+      "text": "How does the light of the lantern depend on distance and oil?",
+      "points": [
+        "falls off to none at the radius",
+        "no oil, no light"
+      ]
+    }
+  ]
+}

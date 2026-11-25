@@ -109,7 +109,10 @@ def owner_turn(part, parts):
     return "Your turn (part %d of %d)." % (part + 1, parts)
 
 
-def wrong_branch(expected, current):
+def wrong_branch(expected, current, simulated=False):
+    if simulated:
+        return ("Wrong branch: this phase is on %s, but %s is checked out (simulated). Switch with: "
+                "learning.py rehearse branch %s" % (expected, current, expected))
     if current == DETACHED:
         return ("Wrong branch: this phase is on %s, but no branch is checked out (detached HEAD). "
                 "Switch with: git switch %s" % (expected, expected))
@@ -542,6 +545,7 @@ CLI_USAGE = """Use one of:
   learning.py record-tests <suite> <file> [phase=N]
   learning.py hand-over [N]
   learning.py setup <settings.json> [--claude-md]
+  learning.py rehearse pass | fail | merge | branch [name] | check <id> | report
   learning.py version"""
 
 
@@ -788,3 +792,117 @@ def setup_lines_added(name, lines):
 
 def setup_no_folder(folder):
     return "The code folder %s does not exist yet. Check that its name is right." % folder
+
+
+# --- rehearsal ------------------------------------------------------------------------------------
+
+REHEARSE_OFF = ("There is no rehearsal: the switch is off. The owner sets {\"rehearsal\": true} in "
+                ".claude/learning/config.json.")
+REHEARSE_USAGE = "Use it as: learning.py rehearse pass | fail | merge | branch [name] | check <id> | report"
+REHEARSAL_NO_BRANCH = "No phase of the rehearsal has a branch, so there is nothing to merge."
+SIM_PASS = "Simulated: all planned tests pass, after the last code change."
+SIM_FAIL = "Simulated: the tests of the scripts that are not done fail, all others pass."
+BY = {"script": "seen by the script", "owner": "checked by the owner"}
+
+
+def rehearsal_planning(n):
+    return ("Phase %s: the files are made. Planning would start here. This is a rehearsal, so nothing is planned: "
+            "show this text and stop." % n)
+
+
+def rehearsal_short(run):
+    return "REHEARSAL run %s. This is the fake project, not your game." % run
+
+
+def rehearsal_rules(run, script):
+    return ("REHEARSAL run %s. The project is the folder .claude/learning/rehearsal: every path below is inside it, "
+            "also the settings in .claude/learning/project.json. Branch, merge and test results are simulated, with: "
+            "bash \"%s\" rehearse pass | fail | merge | branch [name]. The AI runs that when the owner says so, "
+            "and \"rehearse check <id>\" too. Run no tests, use no git, and leave the real game alone." % (run, script))
+
+
+def rehearsal_not_usable(path):
+    return ("%s is a link, or not a folder, or lies behind a link. The rehearsal is made only in a real folder there, "
+            "so nothing was touched. Move it away, or set the switch in config.json to false." % path)
+
+
+def rehearsal_real_folder(folder, path):
+    return ("%s is named in project.json and lies in %s, which the rehearsal would delete. Nothing was touched. "
+            "Set the switch in config.json to false." % (folder, path))
+
+
+def rehearsal_no_template(path):
+    return "The template of the rehearsal is missing in %s. Install the plugin again." % path
+
+
+def rehearsal_no_build(n, status):
+    return "Test results are simulated only in status build. Phase %s is in status %s." % (n, status)
+
+
+def sim_branch(branch):
+    return "Simulated: the branch %s is checked out." % branch
+
+
+def sim_merged(branch):
+    return "Simulated: the branch %s is merged." % branch
+
+
+def unknown_check(check, known):
+    return "There is no check \"%s\" in the checklist. Known: %s." % (check, ", ".join(known))
+
+
+def script_ticks(check):
+    return "%s is ticked by the script when it sees it, not by the owner." % check
+
+
+def ticked(check, by):
+    return "Ticked: %s, %s." % (check, BY[by])
+
+
+def tick_failed(error):
+    return "Note: the rehearsal could not write its report (%s). The command itself is not affected." % error
+
+
+def report_title(run):
+    return "Rehearsal run %s" % run
+
+
+def report_about(started, version, code):
+    return "Started: %s. Plugin: %s %s." % (started, version, code)
+
+
+def report_count(done, total):
+    return "Ticked: %d of %d." % (done, total)
+
+
+def report_line(check, type_, tick):
+    if tick is None:
+        return "- [ ] %s - %s" % (check, type_)
+    return "- [x] %s - %s (%s, %s)" % (check, type_, BY.get(tick.get("by"), tick.get("by")), tick.get("time"))
+
+
+CHECK_GONE = "no longer in the checklist"
+
+
+def compare_first(run):
+    return "Rehearsal run %s: there is no earlier run to compare with." % run
+
+
+def compare_heading(run, last):
+    return "Rehearsal run %s compared with run %s:" % (run, last)
+
+
+def compare_new(checks):
+    return "Ticked now, but not in the last run: %s." % ", ".join(checks)
+
+
+def compare_open(checks):
+    return "Ticked in the last run, but not yet now: %s." % ", ".join(checks)
+
+
+COMPARE_SAME = "The ticked checks are the same."
+COMPARE_PLUGIN_SAME = "The plugin is unchanged."
+
+
+def compare_plugin(before, now):
+    return "The plugin changed: %s, before: %s." % (now, before)

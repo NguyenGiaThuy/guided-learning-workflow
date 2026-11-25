@@ -3,7 +3,7 @@ name: build-phase
 description: "Step 3: the AI WRITES the boilerplate (TODO shells, tests, the rest), or resumes it."
 argument-hint: "[N]"
 disable-model-invocation: true
-allowed-tools: Bash(bash *run.sh* status*), Bash(bash *run.sh* log task *), Bash(bash *run.sh* record-tests *), Bash(bash *run.sh* hand-over*)
+allowed-tools: Bash(bash *run.sh* status*), Bash(bash *run.sh* log task *), Bash(bash *run.sh* record-tests *), Bash(bash *run.sh* hand-over*), Bash(bash *run.sh* rehearse *)
 ---
 
 The status of the phase:
@@ -13,6 +13,8 @@ The status of the phase:
 If it says that guided learning is not set up, say that `/setup-learning` comes first, and stop. If it says that there is no phase, show that and stop.
 
 A hook has already checked that it is the AI's turn. Its text is in your context: the part, its tasks (done or open), and its owner scripts. Do not check again. If there is no such text, the hooks do not run: say so and stop.
+
+If the text says REHEARSAL, its rules come first: the other folder, no git, and simulated tests (`rehearse fail` or `rehearse pass`) in place of real ones.
 
 Do the open tasks of this part only. Read `phase-N.plan.json` and *Notes for later* in `phase-N.md` first. Both are in the folder `docs` of `.claude/learning/project.json`, like the owner mark and the owner's background.
 
