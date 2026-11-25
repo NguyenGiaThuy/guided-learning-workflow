@@ -78,6 +78,7 @@ class PhaseState:
         self.plan_changed = False     # the plan differs from the approved one
         self.problems = []            # lost TODOs and missing files: shown even while building
         self.wrong_branch = None
+        self.unmerged = None          # the branch of a phase that is done there, and not merged here
         self.lost_todos = []          # "S.T" of planned TODOs that were never in their file
         self.project = None           # the project it was worked out for
 
@@ -235,6 +236,21 @@ def open_elsewhere(project, n):
         return (entry["branch"], current) if _ref_exists(project, "refs/heads/" + entry["branch"]) else None
     except _GitError:
         return None
+
+
+def done_elsewhere(project, n):
+    """The branch of a phase that is done there and not merged, so that its file here is missing or older.
+    None if it is not, or without git or that branch."""
+    branch = project.done_phases().get(n)
+    if branch is None or store.read(project.state_path(n)).get("status") in ("done", "skipped"):
+        return None
+    if current_branch(project) in (None, branch):
+        return None
+    try:
+        there = _ref_exists(project, "refs/heads/" + branch)
+    except _GitError:
+        return None
+    return branch if there and not is_merged(project, branch) else None
 
 
 def uncommitted(project, n):
@@ -443,10 +459,14 @@ def plan_differs(project, n, data):
 
 def compute(project, n):
     """Return the PhaseState of phase n, worked out from the files. Nothing is written."""
-    data = store.read(project.state_path(n))
-    plan = store.read(project.plan_path(n))
     st = PhaseState(n)
     st.project = project
+    st.unmerged = done_elsewhere(project, n)
+    if st.unmerged:   # the files here tell nothing
+        st.status, st.branch = "done", st.unmerged
+        return st
+    data = store.read(project.state_path(n))
+    plan = store.read(project.plan_path(n))
     st.status = data.get("status") or "planning"
     st.branch = data.get("branch") or None
     if isinstance(data.get("skip"), str):

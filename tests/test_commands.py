@@ -345,7 +345,7 @@ class OtherBranchTests(GitBase):
         self.accepted("start", "2")   # planned again
         self.assertEqual(self.record(), {})
 
-    def test_the_hand_over_notes_the_locks_and_finish_removes_them(self):
+    def test_the_hand_over_notes_the_locks_and_finish_keeps_the_branch(self):
         self.away()
         self.assertEqual(self.record(), self.entry(locked=["src/Moth.cs", "src/Lamp.cs", "src/Keeper.cs"]))
         self.git("switch", "-q", "stage-2")
@@ -355,7 +355,7 @@ class OtherBranchTests(GitBase):
         passed = {t: "passed" for s in full_plan()["scripts"] for t in s["tests"]}
         self.project.update_state(2, lambda d: d.update(results={"Unit": suite_result(passed)}, log=FinishTests.LOG))
         self.accepted("finish", "2")
-        self.assertEqual(self.record(), {})
+        self.assertEqual(self.record(), {"2": {"branch": "stage-2", "done": True, "locked": []}})
 
     def test_planning_again_removes_a_record_that_was_left(self):
         self.planned()
@@ -1230,6 +1230,238 @@ class ParseTests(Base):
         for prompt in ("", "hello", "/help", "type /start-phase 2", "/start-phases 2", "/start", "/other:start-phase 2",
                        "start-phase 2", "/ start-phase", None):
             self.assertIsNone(commands.parse(prompt))
+
+
+class DoneElsewhereTests(GitBase):
+    """A phase that is done and committed on its branch, and not merged into the one that is checked out."""
+
+    RECORD = {"branch": "stage-1", "done": True, "locked": []}
+
+    @property
+    def local(self):
+        return self.project.root / ".claude" / "learning" / "local" / "open.json"
+
+    def finish(self, n=1, back="main", **more):
+        """Close phase n on the branch stage-n, made from here, and check out another branch."""
+        if n == 1:
+            self.make()
+        branch = "stage-%d" % n
+        self.git("switch", "-q", "-c", branch)
+        st = dict({"status": "build", "branch": branch, "turn": "owner", "part": 0, "log": FinishTests.LOG,
+                   "results": {"Unit": suite_result(FinishTests.PASSED)}}, **more)
+        helpers.make_project(self.project.root, {n: {"state": st, "plan": full_plan(n), "md": FULL_MD}}, files=FinishTests.CODE)
+        self.accepted("finish", str(n))
+        self.commit()
+        if back:
+            self.git("switch", "-q", back)
+
+    def files(self):
+        return {str(f): f.read_bytes() for f in self.project.root.rglob("*") if f.is_file() and ".git" not in f.parts}
+
+    def merge_line(self, n=1):
+        return "Next: merge the branch, then open a new chat and type /start-phase %d" % (n + 1)
+
+    def assertNotMerged(self, text, n=1):
+        self.assertIn(texts.done_not_merged(n, "stage-%d" % n), text)
+        self.assertTrue(text.endswith(self.merge_line(n)), text)
+
+    COMMANDS = [("start", "1"), ("start", "2"), ("start", "3"), ("start", "1 skip: x"), ("start", "2 skip: x"),
+                ("start", "3 skip: x"), ("approve", "1"), ("approve", "1 change: x"), ("build", "1"), ("build", ""),
+                ("finish", "1")]
+
+    def test_the_text_names_the_branch_and_the_way_on(self):
+        text = texts.done_not_merged(1, "stage-1")
+        self.assertIn("Phase 1 is done on branch stage-1, not merged", text)
+        self.assertIn("/start-phase 2", text)
+        self.assertNotIn("skip", text)
+
+    def test_every_command_names_the_branch_and_the_merge(self):
+        self.finish()
+        self.assertFalse(self.project.state_path(1).exists())
+        before = self.files()
+        for argument in ("", "1"):
+            text = self.accepted("summarize", argument)
+            self.assertTrue(text.startswith("Phase 1 - done"), text)
+            self.assertNotMerged(text)
+        for name, argument in self.COMMANDS:
+            self.assertNotMerged(self.refused(name, argument))
+        out = commands.hand_over(self.project, None)
+        self.assertFalse(out.ok)
+        self.assertNotMerged(out.text)
+        self.assertEqual(commands.suggestion(self.project), self.merge_line())
+        self.assertEqual(self.files(), before)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_on_a_detached_head(self):
+        self.finish()
+        self.git("switch", "-q", "--detach", "main")
+        self.assertNotMerged(self.accepted("summarize"))
+        self.git("switch", "-q", "--detach", "stage-1")   # here the files are
+        self.assertIn(texts.done_text(1), self.accepted("summarize"))
+
+    def test_a_phase_that_does_not_exist_names_the_merge(self):
+        self.finish()
+        for name in ("summarize", "approve", "build", "finish"):
+            text = self.refused(name, "2")
+            self.assertIn(texts.no_phase(2, []), text)
+            self.assertTrue(text.endswith(self.merge_line()), text)
+
+    def test_an_older_phase_file_counts_as_missing(self):
+        self.finish()
+        for old in ({"status": "planning"}, {"status": "build", "branch": "stage-1"},
+                    {"status": "build", "branch": "stage-1", "turn": "owner", "part": 0}):
+            helpers.make_project(self.project.root, {1: {"state": old, "plan": full_plan(1)}})
+            self.assertNotMerged(self.accepted("summarize"))
+            for name, argument in self.COMMANDS:
+                self.assertNotMerged(self.refused(name, argument))
+            self.assertEqual(store.read(self.project.state_path(1)), old)
+
+    def test_a_phase_that_is_done_or_skipped_here_is_as_before(self):
+        self.finish()
+        for status in ("done", "skipped"):
+            helpers.make_project(self.project.root, {1: {"state": {"status": status}, "plan": full_plan(1)}})
+            text = self.accepted("summarize")
+            self.assertTrue(text.startswith("Phase 1 - %s" % status), text)
+            self.assertNotIn("not merged", text)
+
+    def test_on_the_branch_itself_everything_is_as_before(self):
+        self.finish(back=None)
+        self.assertIn("Scorecard of phase 1", self.accepted("summarize"))
+        self.assertIn(texts.previous_not_merged(2, "stage-1"), self.refused("start", "2"))
+        self.assertIn(texts.already_started(1, "done"), self.refused("start", "1"))
+        self.assertIn(texts.done_text(1), self.accepted("finish", "1"))
+        self.accepted("start", "2 skip: merged later")
+        self.assertEqual(store.read(self.local), {"1": self.RECORD})
+
+    def test_on_a_branch_made_from_it_everything_is_as_before(self):
+        self.finish()
+        self.git("switch", "-q", "-c", "stage-2", "stage-1")
+        self.assertIn("Scorecard of phase 1", self.accepted("summarize"))
+        self.accepted("start", "2")
+
+    def test_after_the_merge(self):
+        self.finish()
+        self.git("merge", "-q", "--no-ff", "-m", "x", "stage-1")
+        self.assertIn("Scorecard of phase 1", self.accepted("summarize"))
+        self.accepted("start", "2")
+        self.assertEqual(store.read(self.project.state_path(2))["status"], "planning")
+
+    def test_after_the_merge_and_without_the_branch(self):
+        self.finish()
+        self.git("merge", "-q", "--ff-only", "stage-1")
+        self.git("branch", "-q", "-D", "stage-1")
+        self.accepted("start", "2")
+
+    def test_after_a_squash_merge(self):
+        self.finish()
+        self.git("merge", "-q", "--squash", "stage-1")
+        self.git("commit", "-q", "-m", "squashed")
+        self.assertIn("Scorecard of phase 1", self.accepted("summarize"))
+        self.assertIn(texts.previous_not_merged(2, "stage-1"), self.refused("start", "2"))   # as before
+        self.git("branch", "-q", "-D", "stage-1")
+        self.accepted("start", "2")
+
+    def test_a_branch_that_is_gone_has_no_effect(self):
+        self.finish()
+        self.git("branch", "-q", "-m", "stage-1", "renamed")
+        self.assertIn(texts.NO_PHASE_YET, self.refused("summarize"))
+        self.assertIn(texts.previous_missing(2), self.refused("start", "2"))
+        self.accepted("start", "1")
+        self.assertEqual(store.read(self.local), {})
+
+    def test_a_merge_without_the_phase_files_has_no_effect(self):
+        self.finish()
+        self.git("merge", "-q", "--ff-only", "stage-1")
+        self.git("rm", "-q", "-r", "Docs")
+        self.assertIn(texts.NO_PHASE_YET, self.refused("summarize"))
+
+    def test_without_git_everything_is_as_before(self):
+        self.finish()
+        with mock.patch.object(state, "_git", return_value=None):
+            self.assertIn(texts.NO_PHASE_YET, self.refused("summarize"))
+            self.assertIn(texts.previous_missing(2), self.refused("start", "2"))
+
+    def test_without_git_there_is_no_record(self):
+        root = helpers.make_project(self.tmp / "game", {1: {"state": {
+            "status": "build", "turn": "owner", "part": 0, "log": FinishTests.LOG,
+            "results": {"Unit": suite_result(FinishTests.PASSED)}}, "plan": full_plan(1), "md": FULL_MD}}, files=FinishTests.CODE)
+        self.project = project.find(root)
+        self.accepted("finish", "1")
+        self.assertFalse(self.local.exists())
+        self.accepted("start", "2")
+
+    def test_if_git_cannot_tell_it_is_as_before(self):
+        self.finish()
+        with mock.patch.object(state, "_ref_exists", side_effect=state._GitError()):
+            self.assertIn(texts.NO_PHASE_YET, self.refused("summarize"))
+
+    def test_several_phases(self):
+        self.finish(1)
+        self.git("merge", "-q", "--ff-only", "stage-1")
+        self.finish(2)
+        self.assertNotMerged(self.accepted("summarize"), 2)
+        self.assertIn("Scorecard of phase 1", self.accepted("summarize", "1"))
+        self.assertIn(texts.done_text(1), self.accepted("finish", "1"))
+        for argument in ("2", "3", "4", "3 skip: x"):
+            self.assertNotMerged(self.refused("start", argument), 2)
+        self.assertIn(texts.already_started(1, "done"), self.refused("start", "1"))
+
+    def test_two_phases_that_are_not_merged(self):
+        self.finish(1)
+        self.git("switch", "-q", "stage-1")
+        self.finish(2)
+        self.assertNotMerged(self.accepted("summarize"), 2)
+        self.assertNotMerged(self.accepted("summarize", "1"), 1)
+        self.assertNotMerged(self.refused("start", "1"), 1)
+        for argument in ("2", "3", "4"):   # of the two, the later one
+            self.assertNotMerged(self.refused("start", argument), 2)
+        self.git("merge", "-q", "--ff-only", "stage-2")   # brings both
+        self.accepted("start", "3")
+
+    def test_the_next_phase_is_open_on_its_branch(self):
+        self.finish(back=None)
+        self.git("switch", "-q", "-c", "stage-2")
+        self.accepted("start", "2")
+        helpers.write_json(self.project.plan_path(2), full_plan(2))
+        self.accepted("approve", "2")
+        self.accepted("build", "2")
+        self.commit()
+        self.git("switch", "-q", "main")
+        wrong = texts.wrong_branch("stage-2", "main")
+        self.assertIn(wrong, self.accepted("summarize"))
+        self.assertIn(wrong, self.refused("start", "2"))
+        self.assertIn(wrong, self.refused("start", "3"))
+        self.assertNotMerged(self.accepted("summarize", "1"))
+        self.assertNotMerged(self.refused("start", "1"))
+
+    def test_the_record_of_a_skipped_phase_is_removed(self):
+        self.finish()
+        self.git("merge", "-q", "--squash", "stage-1")
+        self.git("commit", "-q", "-m", "squashed")
+        self.project.update_state(1, lambda d: d.update(status="skipped"))
+        self.accepted("start", "2 skip: x")
+        self.assertEqual(store.read(self.local), {})
+
+    def test_a_done_phase_gets_no_record_from_a_skip(self):
+        self.make({1: {"state": {"status": "done", "branch": "stage-1"}, "plan": full_plan(1)}})
+        self.accepted("start", "2 skip: x")
+        self.assertFalse(self.local.exists())
+
+    def test_damaged_records_have_no_effect(self):
+        self.finish()
+        for odd in ({"done": True, "locked": []}, {"branch": 5, "done": True, "locked": []}, {"branch": "stage-1"}, 5):
+            helpers.write_json(self.local, {"1": odd})
+            self.assertIn(texts.NO_PHASE_YET, self.refused("summarize"), odd)
+        helpers.write_json(self.local, {"1": self.RECORD, "x": self.RECORD})
+        self.assertNotMerged(self.accepted("summarize"))
+
+    def test_nothing_changes_in_a_rehearsal(self):
+        self.finish()
+        fake = project.Project(self.project.root / ".claude" / "learning" / "rehearsal", self.project.settings)
+        helpers.write_json(fake.root / ".claude" / "learning" / "local" / "open.json", {"1": self.RECORD})
+        self.assertEqual(fake.done_phases(), {})
+        fake.note_open(2, {"status": "done", "branch": "stage-2"})
+        self.assertEqual(store.read(fake.root / ".claude" / "learning" / "local" / "open.json"), {"1": self.RECORD})
 
 
 if __name__ == "__main__":

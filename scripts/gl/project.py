@@ -137,9 +137,9 @@ class Project:
         """Every read-modify-write of a file in local/, which holds no phase."""
         return store.update(self.root / LEARNING / "local" / name, fn, after=after, tolerant=tolerant)
 
-    def open_phases(self):
-        """{number: {"branch", "locked", "built"}} of the phases that were built on this machine and are
-        still open. The phase files are in git, so another branch does not have them; this record is not."""
+    def _noted_phases(self):
+        """{number: entry} of open.json: {"branch", "locked", "built"} of an open phase and
+        {"branch", "done", "locked": []} of a done one, as far as the entries can be used."""
         if self.is_rehearsal:   # its branches are simulated
             return {}
         try:
@@ -149,19 +149,34 @@ class Project:
         found = {}
         for key, entry in data.items():
             branch, locked = (entry.get("branch"), entry.get("locked")) if isinstance(entry, dict) else (None, None)
-            if key.isdigit() and isinstance(branch, str) and isinstance(locked, list):
+            if not (key.isdigit() and isinstance(branch, str) and isinstance(locked, list)):
+                continue
+            if entry.get("done"):
+                found[int(key)] = {"branch": branch, "done": True, "locked": []}
+            else:
                 found[int(key)] = {"branch": branch, "locked": [x for x in locked if isinstance(x, str)],
                                    "built": bool(entry.get("built"))}
         return found
 
+    def open_phases(self):
+        """{number: {"branch", "locked", "built"}} of the phases that were built on this machine and are
+        still open. The phase files are in git, so another branch does not have them; this record is not."""
+        return {n: entry for n, entry in self._noted_phases().items() if "done" not in entry}
+
+    def done_phases(self):
+        """{number: branch} of the phases that were finished on this machine, merged or not."""
+        return {n: entry["branch"] for n, entry in self._noted_phases().items() if "done" in entry}
+
     def note_open(self, n, data):
-        """Keep the record of open phases in step with the state of phase n."""
+        """Keep the record of open and done phases in step with the state of phase n."""
         if self.is_rehearsal:
             return
         entry = None
         if data.get("status") == "build" and data.get("branch"):
             entry = {"branch": data["branch"], "locked": list(data.get("locked") or []), "built": bool(data.get("turn"))}
-        if self.open_phases().get(n) == entry:
+        elif data.get("status") == "done" and data.get("branch"):
+            entry = {"branch": data["branch"], "done": True, "locked": []}
+        if self._noted_phases().get(n) == entry:
             return
 
         def apply(found):

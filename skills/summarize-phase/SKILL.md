@@ -14,7 +14,7 @@ Show it first, unchanged. Do not work it out again. Then do what fits it, and on
 
 - **REHEARSAL**: its rules come first: the other folder, no git, and simulated tests in place of real ones. Run `rehearse` only when the owner says so; if results are missing or old, ask the owner. Otherwise do the same as always.
 - **Not set up**: say that `/setup-learning` comes first, and stop. **No phase**: name the command it names, and stop.
-- **Wrong branch**: say so, with the command to switch, and stop.
+- **Wrong branch**: say so, with the command to switch, and stop. **Done on a branch that is not merged**: say so, name the next step, and stop.
 - **Planning or skipped**: name the next command and stop.
 - **The AI's turn**: name `/build-phase N` and stop. Never build here.
 - **Done**: offer to go over any concept again.

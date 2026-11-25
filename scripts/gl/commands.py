@@ -52,6 +52,7 @@ def _keyword(rest, word):
 
 def latest(project):
     away = [n for n in project.open_phases() if state.open_elsewhere(project, n)]
+    away += [n for n in project.done_phases() if state.done_elsewhere(project, n)]
     return max(project.phase_numbers() + away, default=None)
 
 
@@ -71,15 +72,26 @@ def _need_phase(project, n):
     if project.state_path(n).exists():
         return
     known = project.phase_numbers()
+    last = latest(project)
+    if last is not None and state.done_elsewhere(project, last):   # nothing can start before the merge
+        raise _refuse([texts.no_phase(n, known)], suggestion(project))
     startable = n if n == 1 or n - 1 in known else max(known, default=0) + 1
     raise _refuse([texts.no_phase(n, known)], texts.next_line("start-phase", startable))
 
 
 def _refuse_elsewhere(project, name, n):
-    """Refuse a command of a phase that is open on another branch; a later one cannot start either."""
+    """Refuse a command of a phase that is open, or done and not merged, on another branch; a later one
+    cannot start either."""
+    def concerned(number):
+        return number == n or name == "start-phase" and number < n
+
     for number in sorted(project.open_phases()):
-        if (number == n or name == "start-phase" and number < n) and state.open_elsewhere(project, number):
+        if concerned(number) and state.open_elsewhere(project, number):
             _wrong_branch(state.compute(project, number))
+    for number in sorted(project.done_phases(), reverse=True):   # the latest branch may hold the ones before
+        branch = state.done_elsewhere(project, number) if concerned(number) else None
+        if branch:
+            raise _refuse([texts.done_not_merged(number, branch)], render.next_line(state.compute(project, number)))
 
 
 def _no_rest(name, n, rest):
@@ -114,7 +126,9 @@ def _mark_skipped(project, prev, reason, items):
                 _add(items, state.compute(project, prev).open_items)
             data.update(status="skipped", skip=reason)
 
-    project.note_open(prev, project.update_state(prev, apply))
+    data = project.update_state(prev, apply)
+    if data.get("status") == "skipped":   # the record of a done one stays as it is
+        project.note_open(prev, data)
 
 
 def _add(items, more):
@@ -445,7 +459,7 @@ def hand_over(project, n=None):
 
 def _summarize(project, n, rest):
     _no_rest("summarize-phase", n, rest)
-    if not state.open_elsewhere(project, n):
+    if not state.open_elsewhere(project, n) and not state.done_elsewhere(project, n):
         _need_phase(project, n)
     return Outcome(True, render.status(state.compute(project, n)).rstrip("\n"))
 

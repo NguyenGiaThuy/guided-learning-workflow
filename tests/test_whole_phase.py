@@ -187,8 +187,22 @@ class WholePhaseTests(unittest.TestCase):
         reason = self.blocked("/start-phase 2")
         self.assertIn(texts.previous_not_merged(2, "stage-1"), reason)
         self.assertNotIn("not committed", reason)
-        self.switch("main")
-        self.blocked("/start-phase 2")
+        self.switch("main")   # the phase files are not here
+        done = texts.done_not_merged(1, "stage-1")
+        merge = texts.next_in_new_chat("start-phase", 2, texts.MERGE_FIRST)
+        for prompt in ("/summarize-phase", "/summarize-phase 1"):
+            text = self.typed(prompt)
+            self.assertIn(done, text)
+            self.assertTrue(text.endswith(merge), text)
+        for args in (["status"], ["status", "1"]):
+            self.assertTrue(self.cli(*args).endswith(done + "\n" + merge + "\n"))
+        for prompt in ("/start-phase 1", "/start-phase 2", "/start-phase 3", "/start-phase 2 skip: x",
+                       "/approve-phase 1", "/build-phase 1", "/build-phase", "/finish-phase 1"):
+            text = self.blocked(prompt)
+            self.assertIn(done, text)
+            self.assertTrue(text.endswith(merge), text)
+        self.assertTrue(self.ai_may_write("src/Moth.cs"))
+        self.assertEqual(self.git("status", "--porcelain"), "")
         self.git("merge", "-q", "--ff-only", "stage-1")
         self.touch_code()
         text = self.typed("/start-phase 2")

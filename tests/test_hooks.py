@@ -308,6 +308,18 @@ class LockedTests(Base):
         helpers.git(self.root, "branch", "-D", "stage-3")
         self.allowed(self.edit("src/Other.cs", tid="t5"))
 
+    def test_a_phase_that_is_done_on_another_branch_refuses_no_edit(self):
+        self.make({"locked": []})
+        if not helpers.git_init(self.root):
+            self.skipTest("git is not available")
+        helpers.git(self.root, "switch", "-q", "-c", "stage-3")
+        helpers.commit(self.root)
+        helpers.git(self.root, "switch", "-q", "main")
+        helpers.write_json(self.root / ".claude" / "learning" / "local" / "open.json",
+                           {"3": {"branch": "stage-3", "done": True, "locked": ["src/Other.cs"]}})
+        self.allowed(self.edit("src/Other.cs"))
+        self.allowed(self.write("src/New.cs", tid="t2"))
+
     def test_the_local_record_is_guarded_and_not_reported(self):
         self.make()
         record = self.root / ".claude" / "learning" / "local" / "open.json"

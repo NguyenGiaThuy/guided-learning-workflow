@@ -31,4 +31,4 @@ You type them in Claude Code. Every status ends with the next one, so you need n
 - A file in git: see what changed with `git diff -- <file>`, and bring back the last saved one with `git restore <file>`. Commit often, because the records since the last commit are lost this way.
 - The plan of an approved phase: restore it, or accept your change with `/approve-phase N change: <reason>`.
 - `config.json` or this README: type `/setup-learning` again. It adds what is missing and overwrites nothing.
-- `local/`, `rehearsal/`: may be deleted. They are made again. Until the next `/build-phase` or hand-over the workflow then does not notice on another branch that a phase is open.
+- `local/`, `rehearsal/`: may be deleted. They are made again. The workflow then does not notice on another branch that a phase is done and not merged, or, until the next `/build-phase` or hand-over, that it is open.
