@@ -9,6 +9,8 @@ _COMMENTS = ("//", "#", "--", "*", "/*")
 # Words that stand before a call, where a declaration has a type or a word like void, def or func.
 _BEFORE_CALL = {"return", "new", "await", "yield", "else", "throw", "in", "is", "not", "and", "or", "case", "assert",
                 "if", "elif", "while", "do", "raise", "with"}
+_GENERIC = re.compile(r"(?<=\w)<[^<>]*>(?=$|[.,>])")
+_LOOK_BACK = 300   # characters before a name in which its type is looked for, so that long lines cost no time
 
 
 def _ids(text):
@@ -79,7 +81,11 @@ def last_code_change(project):
 
 
 def class_and_method(test):
-    return tuple(test.split("(", 1)[0].split(".")[-2:])
+    """The last two parts of the name of a test, without its case and generic arguments."""
+    name, cut = test.split("(", 1)[0], 1
+    while cut:
+        name, cut = _GENERIC.subn("", name)
+    return tuple(name.split(".")[-2:])
 
 
 def has_test(text, test, words=None):
@@ -95,20 +101,43 @@ def has_test(text, test, words=None):
     return all(holds(w) for w in class_and_method(test))
 
 
-def _declares(line, method):
-    """True if the line declares the method: its name with a "(" behind it, and before it a word or
-    the end of a type (Task<int>, int[]). A call has an operator, a dot or nothing before it."""
-    if line.lstrip().startswith(_COMMENTS) or method not in line:
+def _is_type(before):
+    """True if a name behind this text is declared: before it stands a word or the end of a type
+    (Task<int>, int[]). Before the name of a call stands an operator, a dot or nothing."""
+    end = before.rstrip()
+    if end == before:
         return False
-    found = re.finditer(r"(?:(\w+)|<.*[\w\])>?]>|\])\s+%s\s*(?:<[^()]*>\s*)?\(" % re.escape(method), line)
-    return any(m.group(1) not in _BEFORE_CALL for m in found)
+    if end.endswith(">"):
+        return "<" in end and re.search(r"[\w\])>?]>$", end) is not None
+    word = re.search(r"(?<!\w)\w+$", end)
+    return word.group() not in _BEFORE_CALL if word else end.endswith("]")
 
 
-def declares(text, test, words=None):
-    """True if the code holds the class of a test as a whole word, and declares its method.
-    words: as for has_test."""
-    method = class_and_method(test)[-1]
-    return has_test(text, test, words) and any(_declares(line, method) for line in text.splitlines())
+def _code_lines(text):
+    return [line for line in text.splitlines() if not line.lstrip().startswith(_COMMENTS)]
+
+
+def _declared_in(lines, test):
+    """True if a line declares the method of a test, or holds its name as a whole string literal (a
+    name given by TestName or SetName) or in a macro TEST...(class, method)."""
+    *owner, method = class_and_method(test)
+    name = re.escape(method)
+    call = re.compile(r"(?<!\w)%s\s*(?:<[^()]{0,%d}>\s*)?\(" % (name, _LOOK_BACK))
+    macro = re.compile(r"\bTEST\w*\s*\(\s*%s\s*,\s*%s\s*\)" % (re.escape(owner[0]), name)) if owner else None
+    literals = ('"%s"' % method, "'%s'" % method)
+    for line in lines:
+        if method not in line:
+            continue
+        if any(x in line for x in literals) or macro and macro.search(line):
+            return True
+        if any(_is_type(line[max(0, m.start() - _LOOK_BACK):m.start()]) for m in call.finditer(line)):
+            return True
+    return False
+
+
+def declares(text, test):
+    """True if the code holds the class of a test as a whole word, and declares the test."""
+    return has_test(text, test) and _declared_in(_code_lines(text), test)
 
 
 def declared_tests(project, tests):
@@ -116,7 +145,9 @@ def declared_tests(project, tests):
     left, found = list(tests), set()
     for _, text in texts(project) if left else ():
         words = set(re.findall(r"\w+", text))
-        found.update(t for t in left if declares(text, t, words))
+        near = [t for t in left if has_test(text, t, words)]
+        lines = _code_lines(text) if near else []
+        found.update(t for t in near if _declared_in(lines, t))
         left = [t for t in left if t not in found]
     return [t for t in tests if t in found]
 

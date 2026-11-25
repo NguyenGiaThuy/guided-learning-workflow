@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -77,6 +78,49 @@ class ScanTests(unittest.TestCase):
                      "// void Move() {}", "   // the old void Move()", "# def Move(self):", "-- void Move()",
                      " * void Move()", "/* void Move() */"):
             self.assertFalse(self.declares(line), line)
+
+    def test_a_custom_name_is_declared_by_its_literal(self):
+        for line in ('[TestCase(1, TestName="MoveOne")]', "[TestCase(1, TestName = 'MoveOne')]",
+                     'yield return new TestCaseData(1).SetName("MoveOne");', 'x.SetName(@"MoveOne")'):
+            self.assertTrue(self.declares(line, "Game.GameTests.MoveOne"), line)
+        self.assertTrue(self.declares('[TestCase(1, TestName="Move one")]', "Game.GameTests.Move one"))
+        for line in ('[TestCase(1, TestName="MoveOneMore")]', '[TestCase(1, TestName="A MoveOne")]', 'x = MoveOne;',
+                     '// [TestCase(1, TestName="MoveOne")]', "x = \"MoveOne';"):
+            self.assertFalse(self.declares(line, "Game.GameTests.MoveOne"), line)
+        self.assertFalse(scan.declares('class Other { [TestCase(1, TestName="MoveOne")] }', "GameTests.MoveOne"))
+
+    def test_a_macro_declares_a_test(self):
+        for line in ("TEST(GameTests, Move) {", "TEST_F(GameTests,Move)", "  TEST_F ( GameTests , Move ) {"):
+            self.assertTrue(self.declares(line), line)
+        for line in ("TEST(GameTests, Moves) {", "TEST(Other, Move)", "// TEST(GameTests, Move)", "RUN(GameTests, Move)",
+                     "MYTEST(GameTests, Move)"):
+            self.assertFalse(self.declares(line), line)
+
+    def test_generic_arguments_do_not_count(self):
+        for name, parts in (("Game.A.Move<Int32>(1)", ("A", "Move")), ("Game.A.Move<System.Int32>", ("A", "Move")),
+                            ("A.Move<Dictionary<System.Int32,List<X>>>(1)", ("A", "Move")),
+                            ("Game.A<System.Int32>.Move", ("A", "Move")), ("A.Move(\"a<b>.c\")", ("A", "Move")),
+                            ("A.a<b", ("A", "a<b")), ("A.a < b > c", ("A", "a < b > c")), ("Move", ("Move",))):
+            self.assertEqual(scan.class_and_method(name), parts, name)
+        self.assertTrue(self.declares("void Move<T>(T x) {}", "GameTests.Move<Int32>(1)"))
+
+    def test_a_fixture_with_arguments_is_declared(self):
+        code = "namespace Ns {\n[TestFixture(1)]\nclass Fixture {\n  public Fixture(int n) {}\n  void Method() {}\n}\n}"
+        self.assertTrue(scan.has_test(code, "Ns.Fixture(1).Method"))   # as it was
+        self.assertTrue(scan.declares(code, "Ns.Fixture(1).Method"))
+        self.assertTrue(scan.declares(code.replace("Fixture {", "Fixture<T> {"), "Ns.Fixture<Int32>(1).Method"))
+
+    def test_long_lines_and_many_tests_are_quick(self):
+        start = time.monotonic()
+        for line in ("a" * 32000, "Move" * 8000, "Move<" * 6400, "<a> " * 8000, "a " * 16000, " " * 32000 + "Move",
+                     "TEST" * 8000, "TEST( " * 5300, "Move " * 6400, "\"Move, " * 5000, "Move" + " " * 32000):
+            self.assertFalse(self.declares(line + " GameTests Move", "GameTests.Move"), line[:20])
+        self.assertTrue(self.declares("a" * 32000 + " void Move()", "GameTests.Move"))
+        names = ["test%d" % i for i in range(1000)]
+        code = "class A {\n%s\n}\n" % "\n".join("  void %s() {}\n  // a\n  b();" % n for n in names)
+        root = make_project(self.tmp.name + "/q", files={"src/A.cs": code})
+        self.assertEqual(len(scan.declared_tests(project.find(root), ["A." + n for n in names])), 1000)
+        self.assertLess(time.monotonic() - start, 5)
 
     def test_a_declaration_needs_the_class_in_the_same_file(self):
         self.assertFalse(scan.declares("class GameTests2 { void Move() {} }", "GameTests.Move"))

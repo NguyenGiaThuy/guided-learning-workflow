@@ -7,7 +7,9 @@ from . import scan, store, texts
 _BOM = b"\xef\xbb\xbf"
 _ROOTS = ("test-run", "test-results", "testsuites", "testsuite")
 _NUNIT = {"passed": "passed", "success": "passed",
-          "failed": "failed", "failure": "failed", "error": "failed"}
+          "failed": "failed", "failure": "failed", "error": "failed",
+          "skipped": "skipped", "ignored": "skipped", "notrun": "skipped"}
+_OTHER = "other"   # inconclusive, not runnable, cancelled ...: neither a result, nor known to be ignored
 _PLAIN = {"pass": "passed", "passed": "passed", "fail": "failed", "failed": "failed"}
 
 
@@ -16,7 +18,8 @@ class ResultError(Exception):
 
 
 def _merge(found, name, outcome):
-    if found.get(name) != "failed":   # a failure of a repeated name is never hidden
+    before = found.get(name)   # a failure of a repeated name is never hidden, and an odd result not by a skip
+    if before != "failed" and (before, outcome) != (_OTHER, "skipped"):
         found[name] = outcome
 
 
@@ -30,7 +33,7 @@ def _parse_xml(path, raw):
     found = {}
     for case in root.iter("test-case"):
         name = case.get("fullname") or case.get("name") or ""
-        outcome = _NUNIT.get((case.get("result") or "").lower(), "skipped")
+        outcome = _NUNIT.get((case.get("result") or "").lower(), _OTHER)
         _merge(found, name, outcome)
     for case in root.iter("testcase"):
         name = case.get("name") or ""
@@ -58,6 +61,11 @@ def _parse_plain(path, raw):
 
 def parse(path):
     """Return {test name: "passed" | "failed" | "skipped"}. The format is found by content."""
+    return {k: "skipped" if v == _OTHER else v for k, v in _outcomes(path).items()}
+
+
+def _outcomes(path):
+    """As parse, but with _OTHER for the results that only count as skipped there."""
     try:
         with open(path, "rb") as f:
             raw = f.read()
@@ -106,10 +114,10 @@ def record(project, n, suite, path, check=None):
     suites = project.settings.get("suites", [])
     if suite not in suites:
         raise ResultError(texts.result_unknown_suite(suite, suites))
-    found = parse(path)
+    found = _outcomes(path)
     if not found:
         raise ResultError(texts.result_empty(path))
-    tests = {k: v for k, v in found.items() if v != "skipped"}
+    tests = {k: v for k, v in found.items() if v not in ("skipped", _OTHER)}
     if not tests:
         raise ResultError(texts.result_nothing_run(path))
     time = os.stat(path).st_mtime

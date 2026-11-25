@@ -256,6 +256,49 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(items, [texts.suite_failing("Unit", ["Game.A.y"])])
         self.assertEqual(self.skipped(), [])
 
+    def nunit(self, result):
+        return ('<test-run><test-case fullname="Game.A.x" result="Passed"/><test-case fullname="Game.B.z" result="Passed"/>'
+                '<test-case fullname="Game.A.y" result="%s"/></test-run>' % result)
+
+    def test_nunit_results_that_count_as_seen(self):
+        for result in ("Skipped", "Ignored", "NotRun", "skipped"):
+            self.setUp()
+            self.assertEqual(self.changed(self.CODE, (6000, self.nunit(result))), [], result)
+            self.assertEqual(self.skipped(), ["Game.A.y"])
+
+    def test_nunit_results_that_do_not_count_as_seen(self):
+        for result in ("Inconclusive", "NotRunnable", "Cancelled", "Warning", "Odd", ""):
+            self.setUp()
+            self.assertEqual(self.changed(self.CODE, (6000, self.nunit(result))),
+                             [texts.suite_not_run("Unit", ["A.y"])], result)
+            entry = self.state()["results"]["Unit"]
+            self.assertEqual((entry["skipped"], sorted(entry["tests"])), ([], ["Game.A.x", "Game.B.z"]))
+
+    def test_a_repeated_name_that_was_once_not_run_is_not_seen(self):
+        for a, b in (("Skipped", "Inconclusive"), ("Inconclusive", "Skipped")):
+            self.setUp()
+            text = self.nunit(a).replace("</test-run>", '<test-case fullname="Game.A.y" result="%s"/></test-run>' % b)
+            self.assertEqual(self.changed(self.CODE, (6000, text)), [texts.suite_not_run("Unit", ["A.y"])])
+
+    def test_a_file_with_only_such_results_is_refused(self):
+        for result in ("Inconclusive", "Warning", "Skipped"):
+            p = self.result_file("w.xml", '<test-run><test-case fullname="A.x" result="%s"/></test-run>' % result, 2000)
+            with self.assertRaises(results.ResultError):
+                results.record(self.proj, 2, "Unit", p)
+            self.assertEqual(results.parse(p), {"A.x": "skipped"})   # the values that are documented
+        self.assertNotIn("results", self.state())
+
+    def test_a_filtered_run_lists_custom_names_and_generic_tests(self):
+        code = ('class A {\n[TestCase(1, TestName="MoveOne")]\n[TestCase(2, TestName="MoveTwo")]\nvoid Move(int x) {}\n'
+                'void Gen<T>(T x) {}\nvoid Other() {} }')
+        results.record(self.proj, 2, "Unit", self.result_file(
+            "a.csv", "A.MoveOne,pass\nA.MoveTwo,pass\nA.Gen<Int32>(1),pass\nA.Other,pass\n", 3000))
+        os.utime(self.code, (5000, 5000))
+        self.assertEqual(self.items(code, (6000, "A.Other,pass\n"), saved=5000),
+                         [texts.suite_not_run("Unit", ["A.Gen<Int32>", "A.MoveOne", "A.MoveTwo"])])
+        self.assertEqual(self.items(code.replace("MoveTwo", "MoveBoth"),   # renamed
+                                    (6100, "A.MoveOne,pass\nA.MoveBoth,pass\nA.Gen<String>(a),pass\n"), saved=5000), [])
+
     def test_damaged_skipped_names_count_as_none(self):
         self.changed(self.CODE, (6000, self.xml(A_x="pass", B_z="pass")))
         for odd in (5, "Game.A.y", [5, None], {"Game.A.y": 1}):
