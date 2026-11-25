@@ -21,11 +21,12 @@ def write_json(path, data):
     path.write_bytes((json.dumps(data, indent=2) + "\n").encode("utf-8"))
 
 
-def make_project(tmp, phases=None, settings=None):
+def make_project(tmp, phases=None, settings=None, files=None):
     """Build a Lantern Keeper project under tmp and return its root.
 
     phases: {n: {"state": dict, "plan": dict, "md": str}}; each key is optional.
     settings: keys that replace those of PROJECT_JSON.
+    files: {relative path: text} of code files to write under the root.
     """
     root = Path(tmp)
     cfg = dict(PROJECT_JSON, **(settings or {}))
@@ -41,7 +42,41 @@ def make_project(tmp, phases=None, settings=None):
             write_json(docs / ("phase-%d.plan.json" % n), parts["plan"])
         if "md" in parts:
             (docs / ("phase-%d.md" % n)).write_bytes(parts["md"].encode("utf-8"))
+    for rel, text in (files or {}).items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.encode("utf-8"))
     return root
+
+
+def shell(todos):
+    """Text of a code file that still holds the given TODO ids ("1.3", ...)."""
+    lines = ["class Shell {"]
+    for t in todos:
+        lines.append("    // TODO(owner %s) do something" % t)
+    lines.append("}")
+    return chr(10).join(lines) + chr(10)
+
+
+def script(sid, name, todos, tests=(), path=None):
+    return {"id": sid, "name": name, "path": path or "src/%s.cs" % name, "concept": "ai",
+            "todos": list(todos), "tests": list(tests)}
+
+
+def plan(scripts, parts=None, targets=None):
+    """A Lantern Keeper plan; by default all scripts are in one part."""
+    return {"phase": 2, "concepts": [{"id": "ai", "name": "Enemy AI"}],
+            "parts": parts or [{"name": "Part 1", "tasks": ["Shells and tests"],
+                                "scripts": [s["id"] for s in scripts]}],
+            "scripts": scripts, "targets": targets or [], "questions": []}
+
+
+FRESH = 4000000000.0   # a result time after any file written by a test
+OLD = 1.0
+
+
+def suite_result(tests, time=FRESH):
+    return {"time": time, "tests": tests}
 
 
 def set_switch(root, text):
