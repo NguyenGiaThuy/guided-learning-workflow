@@ -697,6 +697,21 @@ class ApproveTests(Base):
             self.assertEqual(state.compute(proj, 2).status, "build")
             shutil.rmtree(self.tmp / "Docs")
 
+    def test_a_change_after_which_all_is_still_done_sets_reached_again(self):
+        proj = self.tuned()
+        os.utime(str(self.tmp / "src" / "Moth.cs"), (1000,) * 2)   # the results are fresh
+        p = full_plan()
+        p["scripts"][0].update(name="Night moth", tests=["MothTests.Turns"])
+        self.put_plan(p)
+        self.accepted("approve", "2 change: one test less")
+        self.assertEqual(self.data()["reached"], "tune")
+        self.save_again()
+        self.assertEqual(state.compute(proj, 2).status, "tune")
+        p["scripts"][0]["tests"].append("MothTests.Sleeps")
+        self.put_plan(p)
+        self.accepted("approve", "2 change: one more")
+        self.assertNotIn("reached", self.data())
+
     def test_a_change_of_targets_or_questions_keeps_reached(self):
         proj = self.tuned()
         p = full_plan()
@@ -707,19 +722,25 @@ class ApproveTests(Base):
         self.accepted("approve", "2 change: wider")
         self.assertEqual((self.data()["reached"], state.compute(proj, 2).status), ("tune", "tune"))
 
-    def test_a_target_that_is_not_accepted_yet_does_not_keep_reached_away(self):
+    def recorded_with(self, plan_):
+        """`reached` after a record that shows all done, while the plan is this one and not accepted."""
         proj = self.planning()
         self.accepted("approve", "2")
         proj.update_state(2, lambda d: d.update(turn="owner", part=0))
         helpers.make_project(self.tmp, files=FinishTests.CODE)
         path = self.tmp / "r.csv"
         path.write_text("".join("%s,pass\n" % t for t in FinishTests.PASSED))
+        self.put_plan(plan_)
+        results.record(proj, 2, "Unit", path)
+        return self.data().get("reached")
+
+    def test_scripts_that_are_not_accepted_yet_keep_reached_away(self):
         p = full_plan()
-        p["scripts"][0]["tests"].append("MothTests.Sleeps")
-        for changed, found in ((p, None), (dict(full_plan(), questions=[]), "tune")):
-            self.put_plan(changed)
-            results.record(proj, 2, "Unit", path)
-            self.assertEqual(self.data().get("reached"), found)
+        p["scripts"][0]["tests"].pop()
+        self.assertIsNone(self.recorded_with(p))
+
+    def test_targets_and_questions_that_are_not_accepted_yet_do_not(self):
+        self.assertEqual(self.recorded_with(dict(full_plan(), targets=[], questions=[])), "tune")
 
     def test_a_change_twice_compares_with_the_last_one(self):
         self.tuned()
@@ -1031,6 +1052,9 @@ class HandOverTests(Base):
         self.assertTrue(out.ok)
         self.assertEqual(out.text, "Phase 2, part 2 handed over.\n"
                                    "Next: open a new chat and type /summarize-phase 2")
+        self.assertEqual(state.compute(self.project, 2).status, "tune")
+        self.assertEqual(self.data()["reached"], "tune")
+        os.utime(str(self.tmp / "src" / "Moth.cs"), (helpers.FRESH + 1000,) * 2)   # a tweak before the next record
         self.assertEqual(state.compute(self.project, 2).status, "tune")
         p["parts"].reverse()
         self.build({"part": 0}, p, files, {"Other.Works": "passed"})
@@ -1409,6 +1433,29 @@ class DoneElsewhereTests(GitBase):
         self.follow_the_skip(1, "stage-1", 3)
         self.assertEqual(store.read(self.project.state_path(2))["status"], "skipped")
 
+    def assertLater(self, text, n, branch, later, on):
+        """Phase n is done on a branch, and a later phase was started: no advice to start one."""
+        self.assertIn("Phase %d is done on branch %s, not merged" % (n, branch), text)
+        self.assertIn("Phase %d was started after it, on branch %s. To go on: git switch %s" % (later, on, on), text)
+        self.assertNotIn("/start-phase", text)
+        self.assertTrue(text.endswith(texts.next_line("summarize-phase", later)), text)
+
+    def test_a_later_phase_that_is_open_is_named(self):
+        self.finish()
+        self.follow_the_skip(1, "stage-1", 2)
+        helpers.write_json(self.project.plan_path(2), full_plan(2))
+        self.accepted("approve", "2")
+        self.accepted("build", "2")
+        self.commit()
+        self.git("switch", "-q", "main")
+        self.assertLater(self.accepted("summarize", "1"), 1, "stage-1", 2, "stage-1")
+
+    def test_a_later_phase_that_is_done_here_is_not_meant(self):
+        self.finish()
+        helpers.make_project(self.project.root, {2: {"state": {"status": "done", "branch": "stage-2"}}})
+        helpers.write_json(self.local, {"1": self.RECORD, "2": {"branch": "stage-2", "done": True, "locked": []}})
+        self.assertIn(texts.done_not_merged(1, "stage-1", 3), self.accepted("summarize", "1"))
+
     def test_an_open_phase_is_still_checked_without_the_skip(self):
         self.finish()
         self.git("switch", "-q", "stage-1")
@@ -1551,8 +1598,8 @@ class DoneElsewhereTests(GitBase):
         self.git("switch", "-q", "stage-1")
         self.finish(2)
         self.assertNotMerged(self.accepted("summarize"), 2)
-        self.assertNotMerged(self.accepted("summarize", "1"), 1)
-        self.assertNotMerged(self.refused("start", "1"), 1)
+        self.assertLater(self.accepted("summarize", "1"), 1, "stage-1", 2, "stage-2")
+        self.assertLater(self.refused("start", "1"), 1, "stage-1", 2, "stage-2")
         for argument in ("2", "3", "4"):   # of the two, the later one
             self.assertNotMerged(self.refused("start", argument), 2)
         self.git("merge", "-q", "--ff-only", "stage-2")   # brings both
@@ -1590,8 +1637,8 @@ class DoneElsewhereTests(GitBase):
         self.assertIn(wrong, self.accepted("summarize"))
         self.assertIn(wrong, self.refused("start", "2"))
         self.assertIn(wrong, self.refused("start", "3"))
-        self.assertNotMerged(self.accepted("summarize", "1"))
-        self.assertNotMerged(self.refused("start", "1"))
+        self.assertLater(self.accepted("summarize", "1"), 1, "stage-1", 2, "stage-2")
+        self.assertLater(self.refused("start", "1"), 1, "stage-1", 2, "stage-2")
 
     def test_the_record_of_a_skipped_phase_is_removed(self):
         self.finish()

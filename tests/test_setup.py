@@ -216,7 +216,9 @@ class ValidationTests(Base):
     def test_an_unknown_key_of_the_game_is_kept(self):
         self.put(".claude/learning/project.json", json.dumps(dict(PROJECT_JSON, more=1)).encode("utf-8"))
         before = self.files()[".claude/learning/project.json"]
-        self.assertIn(texts.setup_kept(".claude/learning/project.json"), self.apply())
+        done = self.apply()
+        self.assertIn(texts.setup_kept(".claude/learning/project.json"), done)
+        self.assertIn(texts.unknown_settings(["more"]), done)
         self.assertEqual(self.files()[".claude/learning/project.json"], before)
         self.assertIn('"more"', self.refused(dict(PROJECT_JSON, more=1)))   # but not in what is given
 
@@ -284,6 +286,22 @@ class CliTests(Base):
         code, out = self.cli(".claude/learning/project.json")
         self.assertEqual(code, 0, out)
         self.assertIn(".gitignore", self.files())
+
+    def test_an_unknown_key_of_the_games_own_project_json_is_named(self):
+        self.put(".claude/learning/project.json", json.dumps(dict(PROJECT_JSON, more=1)).encode("utf-8"))
+        own = str(self.root / ".claude" / "learning" / "project.json")
+        for path in (".claude/learning/project.json", own, ".claude/../.claude/learning/project.json"):
+            for rel in (".gitignore", ".claude/learning/config.json"):
+                (self.root / rel).unlink() if (self.root / rel).exists() else None
+            code, out = self.cli(path)
+            self.assertEqual(code, 0, out)
+            self.assertIn(texts.unknown_settings(["more"]), out)
+            self.assertEqual(len(self.files()), 4)
+        code, out = self.cli(self.settings(dict(PROJECT_JSON, more=1)))   # a copy is other input
+        self.assertEqual(code, 1)
+        self.assertIn(texts.setup_unknown("more"), out)
+        self.put(".claude/learning/project.json", json.dumps(dict(PROJECT_JSON, more=1, code="src")).encode("utf-8"))
+        self.assertEqual(self.cli(own)[0], 1)
 
     def test_an_existing_project_names_its_own_next_command(self):
         helpers.make_project(self.root, {2: {"state": {"status": "planning"}}})

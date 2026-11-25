@@ -255,6 +255,8 @@ class WholePhaseTests(unittest.TestCase):
         self.assertIn("Phase 1 - tune", self.typed("/summarize-phase 1"))
         self.record(failed=["KeeperTests.Walks"])
         self.assertIn("Phase 1 - build", self.typed("/summarize-phase 1"))
+        self.save("src/Keeper.cs", shell([]) + "// speed 5, not run yet\n")
+        self.assertIn("Phase 1 - build", self.typed("/summarize-phase 1"))
         self.save("src/Keeper.cs", shell(["3.1"]))
         self.assertIn("Phase 1 - build", self.typed("/summarize-phase 1"))
         self.save("src/Keeper.cs", shell([]) + "// speed 5\n")

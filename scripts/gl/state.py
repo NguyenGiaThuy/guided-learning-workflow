@@ -83,6 +83,7 @@ class PhaseState:
         self.wrong_branch = None
         self.unmerged = None          # the branch of a phase that is done there, and not merged here
         self.following = None         # then: the first phase after it that is not done or skipped here
+        self.later = None             # then: (number, branch) of the last phase that was started after it elsewhere
         self.lost_todos = []          # "S.T" of planned TODOs that were never in their file
         self.project = None           # the project it was worked out for
 
@@ -483,19 +484,29 @@ def work_differs(project, n, data, plan):
     return known != work_hash(plan) if known else plan_differs(project, n, data)
 
 
+def _has_failure(project, data, plan):
+    """True if a planned owner test failed in the results that are kept, also in old ones."""
+    any_age = {s: True for s in project.settings.get("suites", [])}
+    planned = [str(t) for s in plan.get("scripts", []) for t in s.get("tests", [])]
+    return any("failed" in hits for t in planned for hits, _ in _held(project, data, t, any_age))
+
+
 def mark_reached(project, n, data):
-    """Note in the state of phase n, while it is updated with new results, that all parts are handed over
-    and all scripts done. Old results alone do not move the phase back from then on."""
-    if data.get("status") != "build" or data.get("reached") == REACHED:
+    """Note in the state of phase n, while it is updated, that all parts are handed over and all scripts done.
+    Old results alone do not move the phase back from then on; a recorded failure does, until all is done again."""
+    if data.get("status") != "build":
         return
     try:
         plan, st = store.read(project.plan_path(n)), PhaseState(n)
+        if _has_failure(project, data, plan):
+            data.pop("reached", None)
+            return
         parts, handed_parts = _read_scripts(project, st, data, plan)
         there = plan.get("scripts") or plan.get("parts")
         built = len(handed_parts) == len(parts) and all(s.status == "done" for s in st.scripts)
         if there and built and not work_differs(project, n, data, plan):
             data.update(reached=REACHED, workHash=work_hash(plan))
-    except Exception:
+    except (store.BadJson, TypeError, AttributeError, KeyError, ValueError, OSError):
         pass   # the results count, also while the plan cannot be used
 
 
@@ -503,6 +514,15 @@ def _stays_built(data, scripts):
     """True if the phase has reached the tuning, and nothing but old or missing results speaks against it."""
     return data.get("reached") == REACHED and not any(
         s.todos_left or s.file_missing or s.fails_now for s in scripts)
+
+
+def _started_later(project, n):
+    """(number, branch) of the last phase after n that this machine knows as open or done, and that is not
+    done or skipped here; None if there is none."""
+    known = project.done_phases()
+    known.update({k: entry["branch"] for k, entry in project.open_phases().items()})
+    later = [k for k in known if k > n and store.read(project.state_path(k)).get("status") not in ("done", "skipped")]
+    return (max(later), known[max(later)]) if later else None
 
 
 # --- the computation -----------------------------------------------------------------------
@@ -516,6 +536,7 @@ def compute(project, n):
         st.status, st.branch, st.following = "done", st.unmerged, n + 1
         while store.read(project.state_path(st.following)).get("status") in ("done", "skipped"):
             st.following += 1
+        st.later = _started_later(project, n)
         return st
     data = store.read(project.state_path(n))
     plan = store.read(project.plan_path(n))

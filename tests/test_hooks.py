@@ -1007,7 +1007,7 @@ class EndToEndTests(Base):
         self.assertEqual(self.hook("Stop", {"cwd": str(self.root)}), "")
         out = json.loads(self.hook("UserPromptSubmit", {"cwd": str(self.root), "prompt": "/summarize-phase 2"}))
         self.assertNotIn("decision", out)
-        self.assertIn(texts.unknown_setting("codes"),
+        self.assertIn(texts.unknown_settings(["codes"]),
                       json.loads(self.hook("SessionStart", {"cwd": str(self.root)}))["systemMessage"])
         locked = dict(base, tool_input={"file_path": str(self.root / "src" / "Moth.cs"), "content": "x"})
         self.denied(json.loads(self.hook("PreToolUse", locked)), "locked")   # still guarded

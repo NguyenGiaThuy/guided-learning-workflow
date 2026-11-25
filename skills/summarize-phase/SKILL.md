@@ -34,7 +34,7 @@ Records go through `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh"`, followed by th
 
 ## Tune: the owner changes the numbers
 
-- Before the first tweak: Run and record every whole suite, as in the build. A tweak in a code file makes the results old, so do it again after the last one. Old results during tuning are run again before `/finish-phase`, and failing tests send the phase back to build.
+- Before the first tweak: Run and record every whole suite, as in the build. A tweak in a code file makes the results old, so do it again after the last one. Old results during tuning are run again before `/finish-phase`, and a failing owner test sends the phase back to build.
 - Say which setting influences which target. Never say or change a value.
 - For each tweak ask for the change and the prediction before the run. Then record it:
   - `predicted`: where the owner expects the measured value of the target to go: `up`, `down` or `none`.

@@ -92,7 +92,7 @@ def _refuse_elsewhere(project, name, n):
         branch = state.done_elsewhere(project, number) if concerned(number) else None
         if branch:
             st = state.compute(project, number)
-            raise _refuse([texts.done_not_merged(number, branch, st.following)], render.next_line(st))
+            raise _refuse([texts.done_not_merged(number, branch, st.following, st.later)], render.next_line(st))
 
 
 def _no_rest(name, n, rest):
@@ -271,6 +271,7 @@ def _accept_change(project, n, data, reason):
     if data.get("workHash") != work:
         data.pop("reached", None)
     data["workHash"] = work
+    state.mark_reached(project, n, data)   # all may still be done
 
 
 def _approve(project, n, rest):
@@ -445,6 +446,7 @@ def hand_over(project, n=None):
         handed = dict(data.get("handed") or {})
         handed.update({str(s["id"]): {k: s.get(k) for k in ("name", "path", "todos")} for s in done})
         data.update(locked=locked, handed=handed, turn="owner")
+        state.mark_reached(project, n, data)   # the last part may have no owner scripts
 
     try:
         if n is None:
@@ -481,7 +483,8 @@ def closing_text(project, n):
     lines = [texts.closing_done(n, _docs_path(project, project.md_path(n)))]
     if branch:
         lines.append(texts.closing_branch(branch, merged))
-    in_git = bool(branch) or state.current_branch(project) is not None   # else there is nothing to commit to
+    # A stored branch came from git (or stands for one in a rehearsal), so there is something to commit to.
+    in_git = bool(branch) or state.current_branch(project) is not None
     lines += [texts.closing_carried(n + 1, weak, differently),
               texts.next_in_new_chat("start-phase", n + 1, texts.closing_first(in_git, not merged))]
     return "\n".join(lines)

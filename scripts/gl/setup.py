@@ -5,7 +5,7 @@ from pathlib import Path
 
 from . import state, store, texts, version
 from .project import LEARNING, Project
-from .settings import problems, wrong
+from .settings import problems, unknown, wrong
 
 PROJECT = (LEARNING / "project.json").as_posix()
 CONFIG = (LEARNING / "config.json").as_posix()
@@ -77,18 +77,19 @@ def _section(text):
 
 # --- writing -------------------------------------------------------------------------------------
 
-def apply(root, settings, claudeMd=False):
+def apply(root, settings, claudeMd=False, own=False):
     """Write what is missing in the game at root; return what was done, as sentences.
 
-    An existing project.json stays, and its settings count. All is checked before the first write,
+    An existing project.json stays, and its settings count. own: the settings are that file, in which
+    an unknown key is only named. All is checked before the first write,
     and project.json is written last, so a game is set up only when the rest is there.
     """
     root = Path(root)
-    _check(problems(settings), texts.SETUP_GIVEN)
+    _check(wrong(settings) if own else problems(settings), texts.SETUP_GIVEN)
     existing = (root / PROJECT).is_file()
     if existing:
         settings = store.read(root / PROJECT)
-        _check(wrong(settings), PROJECT)   # an unknown key is only named, in the status line
+        _check(wrong(settings), PROJECT)
     _check_folder(root, LEARNING.as_posix())
     _check_folder(root, settings["docs"])
     writes, done = [], []
@@ -117,6 +118,7 @@ def apply(root, settings, claudeMd=False):
         write(path, content)
     if existing:
         done.append(texts.SETUP_SETTINGS_BY_HAND)
+        done += [texts.unknown_settings(unknown(settings))] if unknown(settings) else []
     here = Project(root, settings)
     done += [texts.setup_no_folder(d) for d in here.missing_code_dirs]
     return done + ([texts.SETUP_IGNORED] if state.is_ignored(here, PROJECT) else [])

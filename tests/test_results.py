@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import helpers
 from helpers import make_project
@@ -98,7 +99,33 @@ class ReachedTests(unittest.TestCase):
     def test_written_when_everything_is_handed_over_and_done(self):
         self.make()
         self.assertEqual(self.record(self.PASS), "tune")
-        self.assertEqual(self.record("MothTests.Dies,fail\n"), "tune")   # kept: compute looks at the results
+        self.assertEqual(self.record("GameTests.Ends,fail\n"), "tune")   # no planned owner test
+        self.assertEqual(self.record("MothTests.Dies,pass\n"), "tune")
+
+    def test_a_recorded_failure_clears_it_until_all_is_done_again(self):
+        self.make()
+        self.record(self.PASS)
+        self.assertIsNone(self.record("Game.MothTests.Dies(1),fail\n"))
+        for name in ("Moth", "Lamp"):   # a save makes the failure old
+            os.utime(str(self.proj.root / "src" / (name + ".cs")), (helpers.FRESH - 1000,) * 2)
+        self.assertEqual(state.compute(self.proj, 2).status, "build")
+        self.assertIsNone(self.record(self.PASS))   # older than the code
+        os.utime(str(self.tmp / "r.csv"), (helpers.FRESH,) * 2)
+        results.record(self.proj, 2, "Unit", self.tmp / "r.csv")
+        self.assertEqual(store.read(self.proj.state_path(2))["reached"], "tune")
+
+    def test_a_failure_that_is_older_than_the_code_clears_it_too(self):
+        self.make()
+        self.record(self.PASS)
+        for name in ("Moth", "Lamp"):
+            os.utime(str(self.proj.root / "src" / (name + ".cs")), (helpers.FRESH - 1000,) * 2)
+        self.assertIsNone(self.record("LampTests.Glows,fail\n"))
+
+    def test_an_unforeseen_error_is_not_hidden(self):
+        self.make()
+        with mock.patch.object(state, "work_hash", side_effect=RuntimeError):
+            with self.assertRaises(RuntimeError):
+                self.record(self.PASS)
 
     def test_written_by_the_run_that_completes_it(self):
         self.make()

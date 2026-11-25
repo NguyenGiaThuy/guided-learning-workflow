@@ -324,13 +324,17 @@ def previous_not_merged(n, branch):
             "from, and type /start-phase %s again. To go on without: %s" % (n - 1, branch, n, skip_command(n)))
 
 
-def done_not_merged(n, branch, following=None):
-    """following: the phase to start after the merge, if it is not the next one."""
-    following = following or n + 1
-    return ("Phase %s is done on branch %s, not merged into what is checked out here. Merge %s, and then type "
-            "/start-phase %s. To go on without merging: git switch %s, and there type %s. To look at phase %s before "
-            "the merge: git switch %s"
-            % (n, branch, branch, following, branch, skip_command(following), n, branch))
+def done_not_merged(n, branch, following=None, later=None):
+    """following: the phase to start after the merge, if it is not the next one.
+    later: (number, branch) of a phase that was started already; then there is none to start."""
+    if later:
+        way_on = "Phase %s was started after it, on branch %s. To go on: git switch %s" % (later + later[1:])
+    else:
+        following = following or n + 1
+        way_on = ("Merge %s, and then type /start-phase %s. To go on without merging: git switch %s, and there type %s"
+                  % (branch, following, branch, skip_command(following)))
+    return ("Phase %s is done on branch %s, not merged into what is checked out here. %s. To look at phase %s before "
+            "the merge: git switch %s" % (n, branch, way_on, n, branch))
 
 
 def phase_files_uncommitted(n, names):
@@ -828,8 +832,10 @@ def setup_unknown(key):
     return "\"%s\" is no setting." % key
 
 
-def unknown_setting(key):
-    return "%s in project.json is no setting and has no effect." % json.dumps(key, ensure_ascii=False)
+def unknown_settings(keys):
+    shown = [json.dumps(k if len(k) <= 30 else k[:30] + "...", ensure_ascii=False) for k in keys[:3]]
+    more = ["and %d more" % (len(keys) - 3)] if len(keys) > 3 else []
+    return "No settings in project.json, without effect: %s." % ", ".join(shown + more)
 
 
 def setup_refused(name):

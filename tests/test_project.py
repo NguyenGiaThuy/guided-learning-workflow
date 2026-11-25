@@ -126,12 +126,22 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(found.settings["code"], ["src"])
         line = render.one_line(found)
         self.assertTrue(line.startswith("Learning hooks: on ("), line)
-        for key in ("codes", "two\nlines \u00fc", ""):
-            self.assertIn(texts.unknown_setting(key), line)
-        self.assertIn('"codes"', line)
+        self.assertIn(texts.unknown_settings(["codes", "two\nlines \u00fc", ""]), line)
+        for shown in ('"codes"', '"two\\nlines \u00fc"', '""'):
+            self.assertIn(shown, line)
         self.assertNotIn("\n", line)
         helpers.write_json(pj, helpers.PROJECT_JSON)
         self.assertNotIn("setting", render.one_line(project.find(self.root)))
+
+    def test_unknown_keys_are_one_short_sentence(self):
+        pj = self.root / ".claude" / "learning" / "project.json"
+        helpers.write_json(pj, dict(helpers.PROJECT_JSON, **{"k%d%s" % (i, "x" * 500): 1 for i in range(50)}))
+        line = render.one_line(project.find(self.root))
+        self.assertLess(len(line), 300)
+        self.assertEqual(line.count("project.json"), 1)
+        self.assertIn('"k0xx', line)
+        self.assertIn("and 47 more", line)
+        self.assertNotIn("more", texts.unknown_settings(["a", "b", "c"]))
 
     def test_a_misspelled_required_key_is_still_an_error(self):
         data = {k: v for k, v in helpers.PROJECT_JSON.items() if k != "code"}

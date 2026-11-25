@@ -113,7 +113,8 @@ def _setup(args):
     found = project.find(root)
     if found and project.norm(found.root) != project.norm(root):
         raise Refused(texts.setup_elsewhere(found.root))
-    done = setup.apply(root, store.read(paths[0]), claudeMd=SETUP_FLAG in args)
+    own = project.norm(paths[0]) == project.norm(os.path.join(root, setup.PROJECT))
+    done = setup.apply(root, store.read(paths[0]), claudeMd=SETUP_FLAG in args, own=own)
     try:
         done.append(commands.suggestion(_project()))
     except Exception:   # a broken phase file must not hide what was written; its own command reports it

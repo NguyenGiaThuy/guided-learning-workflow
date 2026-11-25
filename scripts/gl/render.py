@@ -62,6 +62,8 @@ def next_command(st):
 
 
 def next_line(st):
+    if st.later:
+        return texts.next_line("summarize-phase", st.later[0])
     if st.unmerged:
         return texts.next_in_new_chat("start-phase", st.following, texts.MERGE_FIRST)
     return texts.next_line(*next_command(st))
@@ -86,7 +88,7 @@ def status(st):
                  texts.next_line("summarize-phase", n)]
         return "\n".join(lines) + "\n"
     if st.unmerged:
-        lines = [texts.phase_header(n, "done"), texts.done_not_merged(n, st.unmerged, st.following)]
+        lines = [texts.phase_header(n, "done"), texts.done_not_merged(n, st.unmerged, st.following, st.later)]
     elif st.status == "planning":
         lines = [texts.phase_header(n, "planning"), texts.planning_text(n)]
     elif st.status == "done":
@@ -123,7 +125,8 @@ def run_number(project):
 def one_line(project):
     """The status line for SessionStart. `project` is the outer (real) project."""
     problems = ([project.problem] if project.problem else [])
-    problems += [texts.unknown_setting(key) for key in settings.unknown(project.settings)]
+    unknown = settings.unknown(project.settings)
+    problems += [texts.unknown_settings(unknown)] if unknown else []
     problems += [texts.setup_no_folder(d) for d in project.missing_code_dirs]
     return texts.hooks_line(version.VERSION, version.plugin_hash(), project.rehearsal,
                             run_number(project) if project.rehearsal else None, " ".join(problems))

@@ -547,6 +547,16 @@ class SimulationTests(Base):
             os.utime(str(self.fake / "src" / (name + ".cs")), (time.time() + 60,) * 2)
         st = self.compute()
         self.assertEqual((st.status, st.scripts[0].status), ("tune", "unknown"))
+        moth = self.fake / "src" / "Moth.cs"
+        text = moth.read_bytes()
+        moth.write_bytes(text + b"// TODO(owner 1.3) once more\n")
+        self.cli("rehearse", "fail")
+        self.assertNotIn("reached", store.read(self.active().state_path(2)))
+        moth.write_bytes(text)
+        os.utime(str(moth), (time.time() + 120,) * 2)   # saved: the failure is old
+        self.assertEqual(self.compute().status, "build")
+        self.cli("rehearse", "pass")
+        self.assertEqual(store.read(self.active().state_path(2))["reached"], "tune")
 
     def test_results_need_a_phase_in_build(self):
         self.active().update_state(2, lambda d: d.update(status="done"))
