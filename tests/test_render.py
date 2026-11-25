@@ -100,7 +100,19 @@ class StatusTextTests(Base):
         self.assertTrue(tune.startswith("Phase 2 - tune "))
         self.assertIn("Then: wrap-up", tune)
         self.assertIn(texts.target_open("a"), tune)
-        wrap = self.show(plan([s]), files, {"results": {"Unit": suite_result({"x.y": "passed"})}})
+        self.assertNotIn(texts.SURPRISED_MISSING, tune)   # "Then: wrap-up" covers it
+        self.assertTrue(tune.endswith(texts.next_line("summarize-phase", 2) + "\n"))
+        stored = {"results": {"Unit": suite_result({"x.y": "passed"})},
+                  "log": [{"kind": "rating", "concept": "ai", "rating": "with help"}]}
+        open_ = self.show(plan([s]), files, stored)
+        self.assertIn(texts.SURPRISED_MISSING, open_)
+        self.assertTrue(open_.endswith(texts.next_line("summarize-phase", 2) + "\n"))
+        helpers.make_project(self.tmp, phases={2: {"md": helpers.FULL_MD}})
+        p = dict(plan([s]), questions=[{"id": "q1", "concept": "ai", "text": "?", "points": ["x"]}])
+        changed = self.show(p, files, dict(stored, planHash="0" * 64))
+        self.assertIn(texts.plan_changed(2, "phase-2.plan.json"), changed)
+        self.assertTrue(changed.endswith(texts.next_line("approve-phase", 2) + "\n"))
+        wrap = self.show(p, files, stored)
         self.assertTrue(wrap.startswith("Phase 2 - wrap-up "))
         self.assertTrue(wrap.endswith(texts.next_line("finish-phase", 2) + "\n"))
 

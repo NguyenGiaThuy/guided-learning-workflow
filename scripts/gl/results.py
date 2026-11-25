@@ -77,8 +77,11 @@ def matches(planned, actual):
     return any(a == planned or a.endswith("." + planned) for a in (actual, cut))
 
 
-def record(project, n, suite, path):
-    """Store the passed and failed tests of a result file under results[suite] of phase n."""
+def record(project, n, suite, path, check=None):
+    """Store the passed and failed tests of a result file under results[suite] of phase n.
+
+    Returns them. check(state) is called inside the update and may raise to refuse it.
+    """
     known = project.settings.get("suites", [])
     if suite not in known:
         raise ResultError(texts.result_unknown_suite(suite, known))
@@ -92,6 +95,8 @@ def record(project, n, suite, path):
     limit = scan.last_code_change(project)
 
     def apply(state):
+        if check:
+            check(state)
         stored = state.setdefault("results", {})
         old = stored.get(suite)
         if isinstance(old, dict) and isinstance(old.get("tests"), dict) and old.get("time", -1) >= limit:
@@ -102,6 +107,7 @@ def record(project, n, suite, path):
             stored[suite] = {"time": time, "tests": tests}
 
     store.update(project.state_path(n), apply)
+    return tests
 
 
 def fresh(project, state, suite):

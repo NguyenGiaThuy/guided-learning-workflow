@@ -45,6 +45,26 @@ def _then(st):
     return [texts.then_line(steps)] if steps else []
 
 
+def next_command(st):
+    """(command, phase number) that goes on with the phase."""
+    n = st.n
+    if st.status == "planning":
+        return "approve-phase", n
+    if st.status in ("done", "skipped"):
+        return "start-phase", n + 1
+    if st.status == "build":
+        return ("build-phase" if st.parts_total and st.turn == "ai" else "summarize-phase"), n
+    if st.status == "wrap-up" and not st.open_items:
+        return "finish-phase", n
+    if st.status == "wrap-up" and st.plan_changed and len(st.open_items) == 1:
+        return "approve-phase", n
+    return "summarize-phase", n
+
+
+def next_line(st):
+    return texts.next_line(*next_command(st))
+
+
 def status(st):
     """The status of a phase, ending with the next command."""
     n = st.n
@@ -53,30 +73,24 @@ def status(st):
                  texts.next_line("summarize-phase", n)]
         return "\n".join(lines) + "\n"
     if st.status == "planning":
-        lines = [texts.phase_header(n, "planning"), texts.planning_text(n), texts.next_line("approve-phase", n)]
+        lines = [texts.phase_header(n, "planning"), texts.planning_text(n)]
     elif st.status == "done":
-        lines = [texts.phase_header(n, "done"), texts.done_text(n), texts.next_line("start-phase", n + 1)]
+        lines = [texts.phase_header(n, "done"), texts.done_text(n)]
     elif st.status == "skipped":
-        lines = [texts.phase_header(n, "skipped"), texts.skipped_text(n, st.skip_reason),
-                 texts.next_line("start-phase", n + 1)]
+        lines = [texts.phase_header(n, "skipped"), texts.skipped_text(n, st.skip_reason)]
     else:
         lines = _table(st, texts.todos_count(st.todos_done, st.todos_total))
         lines += _then(st)
         lines += st.problems
-        if st.status == "build" and not st.parts_total:
-            lines.append(texts.next_line("summarize-phase", n))
-        elif st.status == "build":
-            if st.turn == "ai":
-                lines += [texts.ai_turn(st.part, st.parts_total, st.part_name),
-                          texts.next_line("build-phase", n)]
-            else:
-                lines += [texts.owner_turn(st.part, st.parts_total), texts.next_line("summarize-phase", n)]
-        else:
-            items = [i for i in st.open_items if i not in st.problems]
+        if st.status == "build" and st.parts_total:
+            lines.append(texts.ai_turn(st.part, st.parts_total, st.part_name) if st.turn == "ai"
+                         else texts.owner_turn(st.part, st.parts_total))
+        elif st.status != "build":
+            shown = st.problems + (st.wrap_items if st.status == "tune" else [])
+            items = [i for i in st.open_items if i not in shown]
             if items:
                 lines += [texts.open_heading()] + [texts.bullet(i) for i in items]
-            nxt = "summarize-phase" if items or st.status == "tune" else "finish-phase"
-            lines.append(texts.next_line(nxt, n))
+    lines.append(next_line(st))
     return "\n".join(lines) + "\n"
 
 

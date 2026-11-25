@@ -130,7 +130,8 @@ class ScriptTests(Base):
         proj = self.make(plan([moth()]), stored={"turn": None})
         Path(proj.root, "src", "Moth.cs").unlink()
         s = state.compute(proj, 2)
-        self.assertEqual((s.problems, s.open_items), ([], []))
+        self.assertEqual(s.problems, [])
+        self.assertFalse(any("src/Moth.cs" in i for i in s.open_items))
 
     def test_a_todo_that_is_not_in_the_plan_keeps_the_script_open(self):
         plan_ = plan([script(1, "Moth", ["1.1"], [])])
@@ -218,14 +219,15 @@ class StatusTests(Base):
     def test_all_done_is_tune(self):
         s = self.done()
         self.assertEqual((s.status, s.turn, s.targets_met, s.targets_total), ("tune", "owner", 0, 2))
-        self.assertEqual(len(s.open_items), 2)
+        self.assertEqual([i for i in s.open_items if i not in s.wrap_items],
+                         [texts.target_open("wins"), texts.target_open("time")])
 
     def test_targets_met_or_reason_is_wrap_up(self):
         s = self.done([{"kind": "measure", "target": "wins", "value": 30},
                        {"kind": "measure", "target": "wins", "value": 50},
                        {"kind": "reason", "target": "time", "text": "fun anyway"}])
         self.assertEqual((s.status, s.targets_met), ("wrap-up", 1))
-        self.assertEqual(s.open_items, [])
+        self.assertEqual(s.open_items, s.wrap_items)
 
     def test_one_sided_target_and_last_value_counts(self):
         s = self.done([{"kind": "measure", "target": "wins", "value": 60},
@@ -277,6 +279,47 @@ class StatusTests(Base):
         self.assertEqual(s.status, "build")
 
 
+class OpenItemTests(Base):
+    """open_items holds everything /finish-phase checks, in every state of a build."""
+
+    def test_parts_not_handed_over_and_wrap_up_are_listed_while_building(self):
+        s = self.compute(plan([moth()]), stored={"turn": "ai"})
+        for item in (texts.part_not_handed(0, "Part 1"), texts.todos_left("Owner 1 Moth", 5),
+                     texts.suite_not_recorded("Unit"), texts.summary_missing("Enemy AI"),
+                     texts.lessons_count(0), texts.SURPRISED_MISSING, texts.DIFFERENTLY_MISSING):
+            self.assertIn(item, s.open_items)
+
+    def test_todo_of_a_script_in_another_file(self):
+        files = {"src/Other.cs": "x\n" + shell(["1.3", "7.1"])}
+        s = self.compute(plan([moth()]), files=files)
+        self.assertIn(texts.todo_elsewhere("1.3", "src/Other.cs"), s.open_items)
+        self.assertFalse(any("7.1" in i for i in s.open_items))
+        self.assertFalse(any("src/Moth.cs" in i for i in s.open_items))   # counted once, by its label
+
+    def test_rating_and_answers(self):
+        p = dict(plan([moth()]), questions=[{"id": "q1", "concept": "ai", "text": "?", "points": ["x"]}])
+        s = self.compute(p, stored={"log": [{"kind": "rating", "concept": "ai", "rating": "on my own"},
+                                            {"kind": "rating", "concept": "ai", "rating": "can't yet"}]})
+        self.assertIn(texts.rating_missing("Enemy AI"), s.open_items)
+        self.assertIn(texts.answer_missing("Enemy AI"), s.open_items)
+        helpers.make_project(self.tmp, phases={2: {"md": helpers.FULL_MD}})
+        data = {"status": "build", "branch": "stage-2", "turn": "owner", "part": 0,
+                "log": [{"kind": "rating", "concept": "ai", "rating": "with help"}]}
+        helpers.write_json(self.project.state_path(2), data)
+        self.assertEqual(state.compute(self.project, 2).wrap_items, [])
+
+    def test_changed_plan_is_a_problem(self):
+        s = self.compute(plan([moth()]), stored={"planHash": "0" * 64})
+        item = texts.plan_changed(2, "phase-2.plan.json")
+        self.assertTrue(s.plan_changed)
+        self.assertIn(item, s.problems)
+        self.assertIn(item, s.open_items)
+
+    def test_planning_is_open(self):
+        s = self.compute(plan([moth()]), stored={"status": "planning"})
+        self.assertEqual(s.open_items, [texts.plan_not_approved(2)])
+
+
 class GitTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -313,6 +356,52 @@ class GitTests(unittest.TestCase):
         self.run_git("merge", "-q", "--ff-only", "stage-2")
         self.assertTrue(state.is_merged(self.project, "stage-2"))
         self.assertTrue(state.is_merged(self.project, "never-existed"))
+
+    def two_branches(self, main="main"):
+        """`main` with one commit, and stage-2 (checked out) with one more."""
+        self.run_git("branch", "-q", "-M", main)
+        self.run_git("switch", "-q", "-c", "stage-2")
+        self.run_git("commit", "-q", "--allow-empty", "-m", "work")
+
+    def test_is_merged_while_the_branch_is_checked_out(self):
+        for main in ("main", "master"):
+            self.two_branches(main)
+            self.assertFalse(state.is_merged(self.project, "stage-2"), main)
+            self.run_git("branch", "-f", main, "stage-2")
+            self.assertTrue(state.is_merged(self.project, "stage-2"), main)
+            self.run_git("switch", "-q", main)
+            self.assertTrue(state.is_merged(self.project, main))
+            self.run_git("branch", "-D", "stage-2")
+
+    def test_is_merged_prefers_main_over_master(self):
+        self.two_branches("main")
+        self.run_git("branch", "master", "stage-2")
+        self.assertFalse(state.is_merged(self.project, "stage-2"))
+
+    def test_is_merged_with_origin_head(self):
+        self.two_branches("trunk")
+        self.run_git("update-ref", "refs/remotes/origin/trunk", "trunk")
+        self.run_git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+        self.run_git("branch", "main", "stage-2")   # origin/HEAD decides, not the name main
+        self.assertFalse(state.is_merged(self.project, "stage-2"))
+        self.run_git("update-ref", "refs/remotes/origin/trunk", "stage-2")   # merged on the server
+        self.assertTrue(state.is_merged(self.project, "stage-2"))
+
+    def test_is_merged_into_the_local_main_of_origin_head(self):
+        self.two_branches("trunk")
+        self.run_git("update-ref", "refs/remotes/origin/trunk", "trunk")
+        self.run_git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+        self.run_git("branch", "-f", "trunk", "stage-2")
+        self.assertTrue(state.is_merged(self.project, "stage-2"))
+
+    def test_a_dangling_origin_head_falls_back_to_main(self):
+        self.two_branches("main")
+        self.run_git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/gone")
+        self.assertFalse(state.is_merged(self.project, "stage-2"))
+
+    def test_is_merged_without_a_main_branch(self):
+        self.two_branches("other")
+        self.assertTrue(state.is_merged(self.project, "stage-2"))
 
     def test_no_git_program_is_none(self):
         with mock.patch("subprocess.run", side_effect=FileNotFoundError):

@@ -5,6 +5,7 @@ import os
 import tempfile
 import time
 import uuid
+from datetime import datetime
 
 from . import texts
 
@@ -25,6 +26,11 @@ class BadJson(Exception):
 
 class LockTimeout(Exception):
     pass
+
+
+def now():
+    """The time of a record, with the offset of this machine."""
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def _retry_permission(action, seconds=2.0):
@@ -68,14 +74,18 @@ def read(path):
 
 
 def write(path, data):
-    """Write data as JSON (UTF-8, LF) through a temporary file and os.replace.
+    """Write data as JSON, like write_text."""
+    write_text(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+
+def write_text(path, text):
+    """Write text (UTF-8, LF) through a temporary file and os.replace.
 
     Creates parent folders. On failure the old file is untouched and no temporary file stays.
     """
     path = os.fspath(path)
     folder = os.path.dirname(os.path.abspath(path))
     os.makedirs(folder, exist_ok=True)
-    text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"  # may raise before any file exists
     fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=folder)
     try:
         with os.fdopen(fd, "wb") as f:

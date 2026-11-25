@@ -71,6 +71,30 @@ def plan(scripts, parts=None, targets=None):
             "scripts": scripts, "targets": targets or [], "questions": []}
 
 
+FULL_MD = """# Phase 2
+
+## Notes for later
+
+## Answers
+
+### q1
+It takes the nearest lamp in range.
+
+## Concept summary
+
+### Enemy AI
+A state machine with two states.
+
+## Lessons
+- one
+- two
+- three
+
+## Process
+Surprised me: the tests came first
+Differently: start smaller
+"""
+
 FRESH = 4000000000.0   # a result time after any file written by a test
 OLD = 1.0
 
@@ -84,3 +108,25 @@ def set_switch(root, text):
     p = Path(root) / ".claude" / "learning" / "config.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(text if isinstance(text, bytes) else text.encode("utf-8"))
+
+
+def full_plan(n=2, parts=None):
+    """A complete plan: three scripts (Moth, Lamp, Keeper) in one part, one concept, one target."""
+    scripts = [script(1, "Moth", ["1.1", "1.2"], ["MothTests.Turns", "MothTests.Dies"]),
+               script(2, "Lamp", ["2.1"], ["LampTests.Glows"]),
+               script(3, "Keeper", ["3.1"], ["KeeperTests.Walks"])]
+    targets = [{"id": "wins", "text": "Average player wins", "measure": "20 bot runs",
+                "settings": ["Moth.speed"], "min": 40, "max": 60}]
+    result = plan(scripts, parts, targets)
+    result.update(phase=n, questions=[{"id": "q1", "concept": "ai", "text": "How does it choose a target?",
+                                       "points": ["nearest", "in range"]}])
+    return result
+
+
+TWO_PARTS = [{"name": "Moths", "tasks": ["Shells", "Tests"], "scripts": [1, 2]},
+             {"name": "Keeper", "tasks": ["Shell"], "scripts": [3]}]
+
+# The test code of full_plan, without the owner mark.
+TEST_CODE = {"src/MothTests.cs": "class MothTests { void Turns() {} void Dies() {} }\n",
+             "src/LampTests.cs": "class LampTests { void Glows() {} }\n",
+             "src/KeeperTests.cs": "class KeeperTests { void Walks() {} }\n"}

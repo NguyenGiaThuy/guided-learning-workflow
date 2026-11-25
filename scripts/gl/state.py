@@ -2,7 +2,7 @@
 import os
 import subprocess
 
-from . import results, scan, store, texts
+from . import markdown, results, scan, store, texts
 
 DETACHED = texts.DETACHED
 BRANCH_STATUSES = ("build", "tune", "wrap-up")
@@ -40,10 +40,10 @@ class ScriptState:
 
     def open_items(self):
         items = self.problems()
-        if not self.handed:
-            return items
         if self.todos_left:
             items.append(texts.todos_left(self.label, len(self.todos_left)))
+        if not self.handed:
+            return items
         if self.failing:
             items.append(texts.tests_failing(self.label, self.failing))
         if self.status == "unknown":
@@ -70,7 +70,9 @@ class PhaseState:
         self.targets_met = 0
         self.targets_total = 0
         self.targets_open = []        # ids with neither a value in range nor a reason
-        self.open_items = []
+        self.open_items = []          # everything /finish-phase checks and misses
+        self.wrap_items = []          # the part of open_items that belongs to the wrap-up
+        self.plan_changed = False     # the plan differs from the approved one
         self.problems = []            # lost TODOs and missing files: shown even while building
         self.wrong_branch = None
         self.lost_todos = []          # "S.T" of planned TODOs that were never in their file
@@ -110,13 +112,47 @@ def current_branch(project):
     return None
 
 
-def is_merged(project, branch):
-    """True if branch is an ancestor of HEAD or no longer exists; also without git or repository."""
-    found = _git(project, "rev-parse", "--verify", "-q", "refs/heads/" + branch)
-    if found is None or found[0] != 0:
-        return True
-    found = _git(project, "merge-base", "--is-ancestor", "refs/heads/" + branch, "HEAD")
+def _ref_exists(project, ref):
+    found = _git(project, "rev-parse", "--verify", "-q", ref)
+    return found is not None and found[0] == 0
+
+
+def _is_ancestor(project, ref, other):
+    found = _git(project, "merge-base", "--is-ancestor", ref, other)
     return found is None or found[0] != 1
+
+
+def _main_branch(project):
+    """(name, its existing refs) of the main branch: the target of origin/HEAD, else a local
+    main, else master. (None, []) if there is none."""
+    remote = "refs/remotes/origin/"
+    names = []
+    found = _git(project, "symbolic-ref", "-q", remote + "HEAD")
+    if found is not None and found[0] == 0 and found[1].startswith(remote):
+        name = found[1][len(remote):]
+        names.append((name, ["refs/heads/" + name, remote + name]))
+    names += [(name, ["refs/heads/" + name]) for name in ("main", "master")]
+    for name, refs in names:
+        refs = [r for r in refs if _ref_exists(project, r)]
+        if refs:
+            return name, refs
+    return None, []
+
+
+def is_merged(project, branch):
+    """True if the work of branch is merged; also without git, repository or that branch.
+
+    While another branch is checked out: branch is an ancestor of HEAD. While branch itself is
+    checked out that is always so; then it is the main branch, or is contained in it, or there
+    is no main branch to merge into.
+    """
+    ref = "refs/heads/" + branch
+    if not _ref_exists(project, ref):
+        return True
+    if current_branch(project) != branch:
+        return _is_ancestor(project, ref, "HEAD")
+    name, refs = _main_branch(project)
+    return name is None or name == branch or any(_is_ancestor(project, ref, r) for r in refs)
 
 
 # --- pieces of the computation ----------------------------------------------------------------
@@ -198,19 +234,81 @@ def _targets(plan, log):
     return met, open_
 
 
-def _suite_items(project, data, fresh):
+def suite_items(project, data, leave_out=()):
+    """What is wrong with the recorded suites, without the failures of the tests in leave_out."""
     items = []
     for suite in project.settings.get("suites", []):
         entry = (data.get("results") or {}).get(suite)
         if not isinstance(entry, dict) or not isinstance(entry.get("tests"), dict):
             items.append(texts.suite_not_recorded(suite))
-        elif not fresh[suite]:
+        elif not results.fresh(project, data, suite):
             items.append(texts.suite_old(suite))
         else:
-            failed = sorted(k for k, v in entry["tests"].items() if v == "failed")
+            failed = sorted(k for k, v in entry["tests"].items() if v == "failed"
+                            and not any(results.matches(t, k) for t in leave_out))
             if failed:
                 items.append(texts.suite_failing(suite, failed))
     return items
+
+
+def _log(data):
+    return [e for e in data.get("log", []) if isinstance(e, dict)] if isinstance(data.get("log"), list) else []
+
+
+def _ratings(data):
+    """{concept id: its last rating}"""
+    return {str(e.get("concept")): e.get("rating") for e in _log(data) if e.get("kind") == "rating"}
+
+
+def _wrap_items(project, n, plan, data):
+    """What the wrap-up still needs: answers, ratings, concept summary, lessons, process."""
+    md = markdown.load(project.md_path(n))
+    rated = _ratings(data)
+    concepts = [(str(c.get("id")), c.get("name", "")) for c in plan.get("concepts", [])]
+    asked = [(str(q.get("concept")), q.get("id")) for q in plan.get("questions", [])]
+    items = [texts.answer_missing(name) for cid, name in concepts
+             if not any(md.answer(q) for c, q in asked if c == cid)]
+    items += [texts.rating_missing(name) for cid, name in concepts
+              if rated.get(cid) not in (texts.ON_MY_OWN, texts.WITH_HELP)]
+    items += [texts.summary_missing(name) for _, name in concepts if not md.summary(name)]
+    if not 3 <= len(md.lessons) <= 5:
+        items.append(texts.lessons_count(len(md.lessons)))
+    if not md.surprised:
+        items.append(texts.SURPRISED_MISSING)
+    if not md.differently:
+        items.append(texts.DIFFERENTLY_MISSING)
+    return items
+
+
+def carry_over(project, n):
+    """(names of the weak concepts, the "Differently" text) of phase n, for the phase after it."""
+    plan, data = store.read(project.plan_path(n)), store.read(project.state_path(n))
+    rated = _ratings(data)
+    weak = [c.get("name", "") for c in plan.get("concepts", []) if rated.get(str(c.get("id"))) == texts.WITH_HELP]
+    return weak, markdown.load(project.md_path(n)).differently
+
+
+def _stray_todos(project, plan_scripts):
+    """TODOs of this phase's scripts in files that are no owner script of the phase."""
+    ids = {str(s.get("id")) for s in plan_scripts}
+    own = {_norm(project.root / s.get("path", "")) for s in plan_scripts}
+    return [texts.todo_elsewhere(todo, rel) for rel, todo in scan.todos_in_code(project)
+            if todo.split(".")[0] in ids and _norm(project.root / rel) not in own]
+
+
+def _norm(path):
+    return os.path.normcase(os.path.realpath(path))
+
+
+def plan_differs(project, n, data):
+    """True if the plan file is not the approved one (it may be gone)."""
+    approved = data.get("planHash")
+    if not approved:
+        return False
+    try:
+        return store.file_hash(project.plan_path(n)) != approved
+    except FileNotFoundError:
+        return True
 
 
 # --- the computation -----------------------------------------------------------------------
@@ -224,6 +322,8 @@ def compute(project, n):
     st.branch = data.get("branch") or None
     if isinstance(data.get("skip"), str):
         st.skip_reason = data["skip"]
+    if st.status == "planning":
+        st.open_items.append(texts.plan_not_approved(n))
     if st.status == "build":
         _build(project, st, data, plan)
     if st.status in BRANCH_STATUSES and st.branch:
@@ -234,7 +334,7 @@ def compute(project, n):
 
 
 def _build(project, st, data, plan):
-    log = data.get("log") if isinstance(data.get("log"), list) else []
+    log = _log(data)
     plan_scripts = plan.get("scripts", [])
     parts = plan.get("parts") or [{"name": "", "scripts": [s.get("id") for s in plan_scripts]}]
     part = data.get("part") if isinstance(data.get("part"), int) else 0
@@ -273,12 +373,22 @@ def _build(project, st, data, plan):
         st.parts_total = 0
         st.problems.append(item)
         st.open_items.append(item)
-    elif len(handed_parts) == len(parts) and all(s.status == "done" for s in st.scripts):
+        return
+    if len(handed_parts) == len(parts) and all(s.status == "done" for s in st.scripts):
         st.status = "tune" if st.targets_open else "wrap-up"
+    if plan_differs(project, st.n, data):
+        st.plan_changed = True
+        item = texts.plan_changed(st.n, project.plan_path(st.n).name)
+        st.problems.append(item)
+        st.open_items.append(item)
     for s in st.scripts:
         st.open_items += s.open_items()
         st.problems += s.problems()
-    if st.status in ("tune", "wrap-up"):
-        st.open_items += [texts.owner_mark_left(p) for p in scan.owner_marks(project)]
-        st.open_items += _suite_items(project, data, fresh)
-        st.open_items += [texts.target_open(t) for t in st.targets_open]
+    st.open_items += [texts.part_not_handed(i, p.get("name", "")) for i, p in enumerate(parts)
+                      if i not in handed_parts]
+    st.open_items += _stray_todos(project, plan_scripts)
+    st.open_items += [texts.owner_mark_left(p) for p in scan.owner_marks(project)]
+    st.open_items += suite_items(project, data)
+    st.open_items += [texts.target_open(t) for t in st.targets_open]
+    st.wrap_items = _wrap_items(project, st.n, plan, data)
+    st.open_items += st.wrap_items

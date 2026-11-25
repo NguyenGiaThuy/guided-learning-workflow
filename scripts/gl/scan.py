@@ -46,6 +46,21 @@ def _code_files(project):
     return sorted(found)
 
 
+def texts(project):
+    """(path relative to the root with "/", text) of every code file that can be read."""
+    for p in _code_files(project):
+        try:
+            text = _text(p)
+        except OSError:
+            continue
+        yield os.path.relpath(p, project.root).replace(os.sep, "/"), text
+
+
+def todos_in_code(project):
+    """Every TODO(owner) of the code folders, as ("relative/path", "S.T")."""
+    return [(rel, i) for rel, text in texts(project) for i in _ids(text)]
+
+
 def last_code_change(project):
     """Newest change time of any code file; 0.0 if there is none."""
     times = []
@@ -63,12 +78,7 @@ def owner_marks(project):
     if not mark:
         return []
     places = []
-    for p in _code_files(project):
-        try:
-            text = _text(p)
-        except OSError:
-            continue
-        rel = os.path.relpath(p, project.root).replace(os.sep, "/")
+    for rel, text in texts(project):
         for n, line in enumerate(text.splitlines(), 1):
             if mark in line:
                 places.append("%s:%d" % (rel, n))
