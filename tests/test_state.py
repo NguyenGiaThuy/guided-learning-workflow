@@ -126,6 +126,24 @@ class ScriptTests(Base):
         self.assertEqual((sc.status, sc.todos_done), ("not started", 0))
         self.assertEqual(s.problems, [texts.script_file_missing("Owner 1 Moth", "src/Moth.cs")])
 
+    def test_missing_file_before_hand_over_is_no_problem(self):
+        proj = self.make(plan([moth()]), stored={"turn": None})
+        Path(proj.root, "src", "Moth.cs").unlink()
+        s = state.compute(proj, 2)
+        self.assertEqual((s.problems, s.open_items), ([], []))
+
+    def test_a_todo_that_is_not_in_the_plan_keeps_the_script_open(self):
+        plan_ = plan([script(1, "Moth", ["1.1"], [])])
+        s = self.compute(plan_, left=["1.9"], stored=self.fresh())
+        sc = s.scripts[0]
+        self.assertEqual((sc.status, s.next_todo, s.status), ("in progress", "1.9", "build"))
+        self.assertEqual((sc.todos_done, sc.todos_total), (1, 1))
+        self.assertIn(texts.todos_left("Owner 1 Moth", 1), s.open_items)
+
+    def test_not_started_is_not_started_with_an_unplanned_todo_only_after_planned_ones_go(self):
+        s = self.compute(plan([script(1, "Moth", ["1.1"], [])]), left=["1.1", "1.9"])
+        self.assertEqual(s.scripts[0].todos_done, 0)
+
     def test_not_built_yet_is_the_ais_turn(self):
         s = self.compute(plan([moth()]), stored={"turn": None})
         self.assertEqual((s.turn, s.part), ("ai", 0))
@@ -167,6 +185,17 @@ class PartTests(Base):
         before = proj.state_path(2).read_bytes()
         state.compute(proj, 2)
         self.assertEqual(proj.state_path(2).read_bytes(), before)
+
+    def test_a_script_in_no_part_blocks_tune_and_is_reachable(self):
+        scripts = [moth(), script(2, "Orbit", ["2.1"], [])]
+        plan_ = plan(scripts, [{"name": "Part 1", "tasks": [], "scripts": [1]}])
+        s = self.compute(plan_, left=[], stored=self.fresh(), files={"src/Orbit.cs": shell(["2.1"])})
+        self.assertEqual((s.status, s.next_todo, s.next_script), ("build", "2.1", 2))
+
+    def test_empty_plan_stays_in_build_with_a_problem(self):
+        s = self.compute({}, left=[])
+        item = texts.plan_missing("phase-2.plan.json")
+        self.assertEqual((s.status, s.problems, s.open_items), ("build", [item], [item]))
 
     def test_last_part_handed_over_and_done_is_not_back_to_ai(self):
         s = self.compute(plan([moth()]), left=[], stored=self.fresh())

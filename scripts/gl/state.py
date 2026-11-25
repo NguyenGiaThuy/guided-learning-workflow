@@ -156,11 +156,11 @@ def _script(project, data, plan_script, handed, fresh, helped):
     sc.help = helped.get(str(sc.id), 0)
     file = project.root / sc.path
     if not file.is_file():
-        sc.file_missing = True
+        sc.file_missing = handed   # before the hand-over the file need not exist yet
         return sc
     inside = scan.todos(file)
     missing = [t for t in planned if t not in inside]
-    sc.todos_left = [t for t in inside if t in planned]
+    sc.todos_left = list(inside)   # a TODO that is not in the plan still counts
     if not handed:
         sc.lost = missing
         return sc
@@ -245,6 +245,9 @@ def _build(project, st, data, plan):
 
     fresh = {s: results.fresh(project, data, s) for s in project.settings.get("suites", [])}
     helped = _help_levels(log)
+    if len(handed_parts) == len(parts):   # a script in no part is reachable once all parts are handed over
+        listed = {str(i) for p in parts for i in p.get("scripts", [])}
+        handed_ids |= {str(s.get("id")) for s in plan_scripts if str(s.get("id")) not in listed}
     st.scripts = [_script(project, data, s, str(s.get("id")) in handed_ids, fresh, helped) for s in plan_scripts]
     st.parts_total = len(parts)
     st.todos_total = sum(s.todos_total for s in st.scripts)
@@ -265,7 +268,12 @@ def _build(project, st, data, plan):
     st.targets_total = len(plan.get("targets", []))
     st.targets_met, st.targets_open = _targets(plan, log)
 
-    if parts and len(handed_parts) == len(parts) and handed_done:
+    if not plan_scripts and not plan.get("parts"):
+        item = texts.plan_missing(project.plan_path(st.n).name)
+        st.parts_total = 0
+        st.problems.append(item)
+        st.open_items.append(item)
+    elif len(handed_parts) == len(parts) and all(s.status == "done" for s in st.scripts):
         st.status = "tune" if st.targets_open else "wrap-up"
     for s in st.scripts:
         st.open_items += s.open_items()

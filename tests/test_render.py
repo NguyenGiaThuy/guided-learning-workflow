@@ -60,6 +60,12 @@ class StatusTextTests(Base):
             "Next: /summarize-phase 2  (step 4: your turn)",
         ]) + "\n")
 
+    def test_gone_todos_with_a_failing_test_is_in_progress_and_names_it(self):
+        s = script(1, "Moth", ["1.1"], ["MothTests.A", "MothTests.B"])
+        res = {"results": {"Unit": suite_result({"MothTests.A": "passed", "MothTests.B": "failed"})}}
+        text = self.show(plan([s]), {"src/Moth.cs": shell([])}, res)
+        self.assertEqual(text.splitlines()[1], "  Owner 1 Moth  in progress  tests 1/2  failing: MothTests.B")
+
     def test_ai_turn_names_build_phase(self):
         text = self.show(plan([script(1, "Moth", ["1.1"], [])]), {}, {"turn": None})
         self.assertIn("It is the AI's turn", text)

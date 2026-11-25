@@ -133,6 +133,43 @@ def open_heading():
     return "Still open:"
 
 
+STATUS = {"done": "done", "not started": "not started", "unknown": "unknown",
+          "in progress": "in progress"}
+WRAP_UP = "wrap-up"
+
+
+def todos_of(done, total):
+    return "%d of %d" % (done, total)
+
+
+def tests_cell(passed, total):
+    return "tests %d/%d" % (passed, total)
+
+
+def help_note(level):
+    return "help: %d" % level
+
+
+def next_note(todo):
+    return "<- next: TODO %s" % todo
+
+
+def failing_note(names):
+    return "failing: " + ", ".join(names)
+
+
+def tune_step(met, total):
+    return "tune (%s)" % targets_count(met, total)
+
+
+def bullet(item):
+    return "  - " + item
+
+
+def plan_missing(name):
+    return "%s is missing or empty, so there is nothing to build." % name
+
+
 def script_label(sid, name):
     return "Owner %s %s" % (sid, name)
 

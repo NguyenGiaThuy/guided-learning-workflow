@@ -6,17 +6,19 @@ def _rows(st):
     """Table rows: (label, status cell, tests cell, extra)."""
     rows = []
     for s in st.scripts:
-        status, tests, extra = s.status, "", []
-        if s.status == "in progress":
-            status = "%d of %d" % (s.todos_done, s.todos_total)
+        status, tests, extra = texts.STATUS[s.status], "", []
+        if s.status == "in progress" and s.todos_left:
+            status = texts.todos_of(s.todos_done, s.todos_total)
         if s.status != "not started" and s.tests_total:
-            tests = "tests %d/%d" % (s.tests_passed, s.tests_total)
+            tests = texts.tests_cell(s.tests_passed, s.tests_total)
         if s.status == "unknown":
             extra.append(texts.WHY[s.why])
+        if s.failing and not s.todos_left:
+            extra.append(texts.failing_note(s.failing))
         if s.help:
-            extra.append("help: %d" % s.help)
+            extra.append(texts.help_note(s.help))
         if st.next_todo and s.id == st.next_script:
-            extra.append("<- next: TODO %s" % st.next_todo)
+            extra.append(texts.next_note(st.next_todo))
         rows.append((s.label, status, tests, "   ".join(extra)))
     return rows
 
@@ -37,9 +39,9 @@ def _table(st, header_right):
 def _then(st):
     steps = []
     if st.status == "build":
-        steps.append("tune (%s)" % texts.targets_count(st.targets_met, st.targets_total))
+        steps.append(texts.tune_step(st.targets_met, st.targets_total))
     if st.status in ("build", "tune"):
-        steps.append("wrap-up")
+        steps.append(texts.WRAP_UP)
     return [texts.then_line(steps)] if steps else []
 
 
@@ -61,7 +63,9 @@ def status(st):
         lines = _table(st, texts.todos_count(st.todos_done, st.todos_total))
         lines += _then(st)
         lines += st.problems
-        if st.status == "build":
+        if st.status == "build" and not st.parts_total:
+            lines.append(texts.next_line("summarize-phase", n))
+        elif st.status == "build":
             if st.turn == "ai":
                 lines += [texts.ai_turn(st.part, st.parts_total, st.part_name),
                           texts.next_line("build-phase", n)]
@@ -70,7 +74,7 @@ def status(st):
         else:
             items = [i for i in st.open_items if i not in st.problems]
             if items:
-                lines += [texts.open_heading()] + ["  - " + i for i in items]
+                lines += [texts.open_heading()] + [texts.bullet(i) for i in items]
             nxt = "summarize-phase" if items or st.status == "tune" else "finish-phase"
             lines.append(texts.next_line(nxt, n))
     return "\n".join(lines) + "\n"
