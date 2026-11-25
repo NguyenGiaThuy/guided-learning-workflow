@@ -2,9 +2,12 @@
 import io
 import json
 import os
+import re
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -484,7 +487,7 @@ class ErrorTests(CaseBase):
         self.assertIn("KeyError: 'boom'", self.assert_verdict("failed", say("x"), end("x")))
 
     def test_an_error_does_not_lose_the_table(self):
-        def one(c):
+        def one(c, number):
             if c.name == "finish":
                 raise OSError("no git | here")
             return cases.Verdict("passed")
@@ -495,7 +498,7 @@ class ErrorTests(CaseBase):
         self.assertIn("failed: OSError: no git / here (2x)", run.table(rows))
 
     def test_ctrl_c_keeps_the_table(self):
-        def one(c):
+        def one(c, number):
             if c.name == "finish":
                 raise KeyboardInterrupt()
             return cases.Verdict("passed")
@@ -707,13 +710,341 @@ class ProcessTests(unittest.TestCase):
     def test_after_a_limit_no_more_is_started(self):
         starts = []
 
-        def one(case_):
+        def one(case_, number):
             starts.append(case_.name)
             return cases.Verdict("not run", run.NO_MORE + "usage limit")
 
         rows = run.run_all([case("finish"), case("status line")], 3, one)
         self.assertEqual(len(starts), 1)
         self.assertEqual([[v.outcome for v in verdicts] for _, verdicts in rows], [["not run"] * 3] * 2)
+
+
+PARALLEL = """
+import json, os, pathlib, subprocess, sys, time
+what, top, together = sys.argv[1], pathlib.Path(sys.argv[2]), int(sys.argv[3])
+me, met = top / ("active-%d" % os.getpid()), top / "met"
+
+def look():
+    active = len(list(top.glob("active-*")))
+    (top / ("seen-%d-%d" % (os.getpid(), active))).write_bytes(b"")
+    if active >= together:
+        met.write_bytes(b"")
+
+def wait_for(condition, seconds=15):
+    end = time.monotonic() + seconds
+    while not condition() and time.monotonic() < end:
+        time.sleep(0.02)
+
+me.write_bytes(what.encode())
+(top / ("order-%d-%d" % (time.time_ns(), os.getpid()))).write_bytes(what.encode())
+print(json.dumps({"type": "system", "subtype": "init", "permissionMode": "default", "model": "small-1",
+                  "claude_code_version": "9.9"}), flush=True)
+if what == "hang":
+    code = "import sys, time\\nwhile True:\\n    open(sys.argv[1], 'a').write('x')\\n    time.sleep(0.05)"
+    subprocess.Popen([sys.executable, "-c", code, str(top / ("beat-%d" % os.getpid()))])
+    time.sleep(60)
+look()
+wait_for(met.exists)
+if what == "slow":
+    wait_for((top / "limited").exists)
+    time.sleep(0.5)
+time.sleep(0.3)
+look()
+if what == "limit":
+    (top / "limited").write_bytes(b"")
+    print(json.dumps({"type": "result", "is_error": True, "result": "You've hit your session limit"}))
+else:
+    print(json.dumps({"type": "result", "result": os.getcwd(), "git": os.environ["GIT_CONFIG_GLOBAL"]}))
+me.unlink()
+"""
+
+# Ctrl+C as the owner types it: it reaches every program of the console that does not guard itself.
+CTRL_C = """
+import os, pathlib, signal, sys, threading, time
+sys.path.insert(0, %r)
+from unittest import mock
+from test_repeat import ParallelBase, run
+top, jobs, count = pathlib.Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])
+if os.name == "nt":
+    import ctypes
+    ctypes.windll.kernel32.SetConsoleCtrlHandler(None, False)   # whoever started the tests may have switched it off
+
+def ctrl_c():
+    while len([b for b in top.glob("beat-*") if b.stat().st_size]) < count:
+        time.sleep(0.02)
+    if os.name == "nt":
+        ctypes.windll.kernel32.GenerateConsoleCtrlEvent(0, 0)
+    else:
+        os.kill(os.getpid(), signal.SIGINT)
+
+threading.Thread(target=ctrl_c, daemon=True).start()
+with mock.patch.object(run.cases, "CASES", [ParallelBase.case("hang", n) for n in range(3)]), mock.patch.object(
+        run, "command_of", ParallelBase.command(top)):
+    sys.exit(run.main(["--model", "m", "--times", "2", "--claude", sys.executable, "--jobs", jobs]))
+""" % str(Path(__file__).resolve().parent)
+
+
+class ParallelBase(unittest.TestCase):
+    """Several runs at once, with a Python script in place of Claude Code."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.top = Path(tmp.name) / "top"
+        self.folders = Path(tmp.name) / "folders"   # in place of the temp folder of the machine
+        self.top.mkdir()
+        self.folders.mkdir()
+        self.about, self.lines = set(), io.StringIO()
+
+    @staticmethod
+    def case(what, number=0, build=None):
+        return cases.Case("%s %s" % (what, "abcdefgh"[number]), build or (lambda root: (root / "x").write_bytes(b"x")),
+                          ["hello"], lambda r: cases.Verdict("passed" if r.final else "failed", ""))
+
+    @staticmethod
+    def command(top, together=1):
+        (top / "fake.py").write_text(PARALLEL, encoding="utf-8")
+        return lambda case_, claude, model: [sys.executable, str(top / "fake.py"), case_.name.split()[0], str(top),
+                                             str(together)]
+
+    def run_all(self, chosen, times, jobs, together=1, raw=None, limit=20):
+        halt, start = run.Halt(), run.start
+        with mock.patch.object(run, "command_of", self.command(self.top, together)), mock.patch.object(
+                run, "start", lambda *args: start(*args[:5], limit=limit, halt=args[-1])), mock.patch.object(
+                run.tempfile, "tempdir", str(self.folders)), mock.patch.object(processes.sys, "stderr", self.lines):
+            return run.run_all(chosen, times, lambda c, number: run.once(
+                c, number, "claude", "m", raw, self.about, halt), jobs, halt)
+
+    def assert_outcomes(self, rows, wanted):
+        self.assertEqual([[v.outcome for v in verdicts] for _, verdicts in rows], wanted,
+                         [[v.note for v in verdicts] for _, verdicts in rows])
+        self.assertEqual(list(self.folders.iterdir()), [], "a folder is left")
+
+    def seen(self):
+        """The most runs that were active at once."""
+        return max(int(p.name.split("-")[2]) for p in self.top.glob("seen-*"))
+
+    def order(self):
+        return [p.read_text() for p in sorted(self.top.glob("order-*"))]
+
+    def assert_no_beat(self, count):
+        def size():
+            return [p.stat().st_size for p in sorted(self.top.glob("beat-*"))]
+
+        time.sleep(0.3)
+        before = size()
+        self.assertEqual(len(before), count)
+        time.sleep(0.7)
+        self.assertEqual(size(), before, "a child still runs")
+
+
+class ParallelTests(ParallelBase):
+    def test_several_at_once_but_no_more_than_that(self):
+        rows = self.run_all([self.case("a"), self.case("b")], 4, jobs=3, together=3)
+        self.assert_outcomes(rows, [["passed"] * 4] * 2)
+        self.assertEqual(self.seen(), 3)
+
+    def test_one_job_is_one_after_the_other_in_the_order_of_the_rows(self):
+        rows = self.run_all([self.case("a"), self.case("b")], 2, jobs=1)
+        self.assert_outcomes(rows, [["passed"] * 2] * 2)
+        self.assertEqual(self.seen(), 1)
+        self.assertEqual(self.order(), ["a", "b", "a", "b"])
+
+    def test_runs_are_started_in_the_order_of_the_rows(self):
+        started = []
+
+        def one(c, number):
+            started.append((c.name, number))
+            time.sleep(0.01)
+            return cases.Verdict("passed")
+
+        run.run_all([self.case("a"), self.case("b")], 6, one, 4)
+        wanted = [(name, number) for number in range(1, 7) for name in ("a a", "b a")]
+        self.assertEqual(sorted(started), sorted(wanted))
+        for i, got in enumerate(started):
+            self.assertLess(abs(wanted.index(got) - i), 4)
+
+    def test_each_run_has_its_own_folder_git_settings_and_raw_file(self):
+        raw = self.top / "raw"
+        rows = self.run_all([self.case("a"), self.case("b")], 4, jobs=4, together=4, raw=raw)
+        self.assert_outcomes(rows, [["passed"] * 4] * 2)
+        self.assertEqual(sorted(p.name for p in raw.iterdir()),
+                         ["%s-a-default-%d.jsonl" % (name, i) for name in "ab" for i in (1, 2, 3, 4)])
+        ends = [run.read_events(p)[-1] for p in raw.iterdir()]
+        self.assertEqual(len({e["result"] for e in ends}), 8)
+        self.assertEqual(len({e["git"] for e in ends}), 8)
+
+    def test_raw_files_of_earlier_runs_stay(self):
+        out, raw = self.top / "out", self.top / "raw"
+        out.write_bytes(b"old")
+        for number in (1, 2):
+            run._keep(out, raw, self.case("a"), number)
+        out.write_bytes(b"new")
+        threads = [threading.Thread(target=run._keep, args=(out, raw, self.case("a"), n)) for n in range(1, 9)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        found = {p.name: p.read_bytes() for p in raw.iterdir()}
+        self.assertEqual(found, {"a-a-default-%d.jsonl" % i: b"old" if i < 3 else b"new" for i in range(1, 11)})
+
+    def test_the_limit_counts_from_the_start_of_each_run(self):
+        begin = time.monotonic()
+        rows = self.run_all([self.case("hang"), self.case("a"), self.case("b")], 2, jobs=2, limit=3)
+        self.assert_outcomes(rows, [["failed"] * 2, ["passed"] * 2, ["passed"] * 2])
+        self.assertIn("stopped after", rows[0][1][0].note)
+        self.assertGreater(time.monotonic() - begin, 3)
+        self.assert_no_beat(2)
+
+    def test_a_usage_limit_starts_no_more_and_active_runs_end_as_usual(self):
+        rows = self.run_all([self.case("slow"), self.case("limit"), self.case("a")], 2, jobs=2, together=2)
+        self.assert_outcomes(rows, [["passed", "not run"], ["not run"] * 2, ["not run"] * 2])
+        self.assertEqual({v.note for _, verdicts in rows for v in verdicts if v.outcome == "not run"},
+                         {run.NO_MORE + "usage limit"})
+        self.assertEqual(sorted(self.order()), ["limit", "slow"])
+
+    def test_an_error_in_one_run_does_not_end_the_others(self):
+        def broken(root):
+            raise OSError("boom")
+
+        rows = self.run_all([self.case("a"), self.case("b", build=broken), self.case("c")], 2, jobs=3)
+        self.assert_outcomes(rows, [["passed"] * 2, ["failed"] * 2, ["passed"] * 2])
+        self.assertEqual(rows[1][1][0].note, "OSError: boom")
+
+    def test_no_error_ends_a_thread(self):
+        def one(c, number):
+            raise SystemExit("gone")
+
+        rows = run.run_all([self.case("a")], 3, one, 2)
+        self.assert_outcomes(rows, [["failed"] * 3])
+
+    def test_the_table_does_not_depend_on_the_order_of_the_ends(self):
+        def one(c, number):
+            time.sleep(0.02 * (5 - number))
+            return cases.Verdict(*(("failed", "%s, why %d" % (c.name, number)) if number % 2 else ("passed", "")))
+
+        chosen = [self.case("a"), self.case("b"), self.case("c")]
+        self.assertEqual(run.table(run.run_all(chosen, 4, one, 4)), run.table(run.run_all(chosen, 4, one, 1)))
+
+    def test_a_line_is_written_whole_and_names_case_mode_and_number(self):
+        with mock.patch.object(processes.sys, "stderr") as err:
+            processes.say("a line")
+        err.write.assert_called_once_with("a line\n")
+        self.run_all([self.case("a")], 2, jobs=2, together=2)
+        lines = self.lines.getvalue().splitlines()
+        self.assertEqual(len(lines), 2)
+        for number in (1, 2):
+            self.assertTrue(any(re.match(r"passed +\d+ s  a a \(default\) %d  $" % number, x) for x in lines), lines)
+
+    def test_a_lost_console_ends_no_run(self):
+        with mock.patch.object(processes.sys, "stderr") as err:
+            err.write.side_effect = OSError("closed")
+            processes.say("a line")
+
+    def test_what_claude_code_said_of_itself(self):
+        self.run_all([self.case("a")], 2, jobs=2)
+        self.assertEqual(run.said_of_itself(self.about, "claude"), "9.9")
+        self.assertEqual(run.said_of_itself(self.about, "model"), "small-1")
+        self.assertEqual(run.said_of_itself({("model", "b"), ("model", "a"), ("claude", "c")}, "model"), "a / b")
+        self.assertEqual(run.said_of_itself(set(), "model"), "?")
+
+
+class InterruptTests(ParallelBase):
+    def ctrl_c(self, jobs):
+        env = dict(os.environ, TMP=str(self.folders), TEMP=str(self.folders), TMPDIR=str(self.folders))
+        hidden = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}   # a console of its own
+        done = subprocess.run([sys.executable, "-c", CTRL_C, str(self.top), str(jobs), str(jobs)], env=env, timeout=60,
+                              stdin=subprocess.DEVNULL, capture_output=True, **hidden)
+        out, err = done.stdout.decode("utf-8"), done.stderr.decode("utf-8")
+        self.assertEqual(done.returncode, 2, out + err)
+        for name in "abc":
+            row = "| hang %s | default | 0 of 2 | 2 | not run: no more runs: interrupted (2x) |" % name
+            self.assertIn(row, out, err)
+        self.assertEqual(len(self.order()), jobs)
+        self.assertEqual(list(self.folders.glob(run.PREFIX + "*")), [], "a folder is left")
+        self.assert_no_beat(jobs)
+
+    def test_ctrl_c_stops_all_active_runs_and_their_children(self):
+        self.ctrl_c(3)
+
+    def test_ctrl_c_with_one_job(self):
+        self.ctrl_c(1)
+
+    def test_runs_that_ended_before_keep_their_verdict(self):
+        begun, before = threading.Event(), signal.getsignal(signal.SIGINT)
+        halt = run.Halt()
+
+        def one(c, number):
+            if c.name.startswith("a"):
+                return cases.Verdict("passed")
+            begun.set()
+            while not halt.interrupted:
+                time.sleep(0.01)
+            time.sleep(0.2)
+            raise KeyboardInterrupt()
+
+        def ctrl_c():
+            begun.wait(10)
+            time.sleep(0.1)
+            signal.raise_signal(signal.SIGINT)
+            time.sleep(0.1)
+            signal.raise_signal(signal.SIGINT)   # once more, while the runs end
+
+        thread = threading.Thread(target=ctrl_c)
+        thread.start()
+        rows = run.run_all([self.case("a"), self.case("b"), self.case("c")], 2, one, 2, halt)
+        thread.join()
+        self.assert_outcomes(rows, [["passed", "not run"], ["not run"] * 2, ["not run"] * 2])
+        self.assertEqual(signal.getsignal(signal.SIGINT), before)
+
+
+class HeadTests(unittest.TestCase):
+    """What stands above and below the table."""
+
+    def main(self, *args, hashes=("aaaaaa", "aaaaaa"), outcome="passed"):
+        def once(c, number, claude, model, raw, about, halt):
+            about.update({("claude", "9.9"), ("model", "small-1")})
+            return cases.Verdict(outcome, "why")
+
+        out = io.TextIOWrapper(io.BytesIO())
+        with mock.patch.object(run, "once", once), mock.patch.object(
+                run.version, "plugin_hash", side_effect=list(hashes)), mock.patch.object(
+                sys, "stdout", out), mock.patch.object(sys, "stderr", io.TextIOWrapper(io.BytesIO())):
+            code = run.main(["--model", "small", "--times", "2", "--case", "finish", "--claude", "x"] + list(args))
+        out.seek(0)
+        return code, out.read()
+
+    def test_a_saved_table_stands_on_its_own(self):
+        code, text = self.main("--jobs", "2")
+        self.assertEqual(code, 0)
+        head = text.splitlines()[0]
+        for part in ("aaaaaa", "Claude Code 9.9", "model small (small-1)", "jobs 2"):
+            self.assertIn(part, head)
+        self.assertIn("jobs 1", self.main()[1].splitlines()[0])
+        self.assertNotIn("does not count", text)
+
+    def test_a_plugin_that_changed_meanwhile_is_noticed(self):
+        for jobs in ("1", "3"):
+            code, text = self.main("--jobs", jobs, hashes=("aaaaaa", "bbbbbb"))
+            self.assertEqual(code, 1)
+            self.assertIn("| finish | default | 2 of 2 |", text)
+            self.assertRegex(text, r"aaaaaa.*bbbbbb.*does not count")
+        self.assertEqual(self.main(hashes=("aaaaaa", "bbbbbb"), outcome="not run")[0], 1)
+
+    def test_a_plugin_that_cannot_be_read_at_the_end_does_not_lose_the_table(self):
+        code, text = self.main(hashes=("aaaaaa", OSError("gone")))
+        self.assertEqual(code, 1)
+        self.assertIn("| finish | default | 2 of 2 |", text)
+        self.assertIn("does not count", text)
+
+    def test_number_of_jobs(self):
+        self.assertEqual(run.options(["--model", "m"]).jobs, 1)
+        for good in (1, 4, 8):
+            self.assertEqual(run.options(["--model", "m", "--jobs", str(good)]).jobs, good)
+        for bad in ("0", "9", "-1", "2.5", "many", "", "10"):
+            with mock.patch.object(sys, "stderr", io.StringIO()) as err, self.assertRaises(SystemExit):
+                run.options(["--model", "m", "--jobs=" + bad])
+            self.assertIn("a whole number from 1 to 8", err.getvalue())
 
 
 if __name__ == "__main__":

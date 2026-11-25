@@ -1,6 +1,6 @@
 """Repeat runs: start Claude Code many times in throwaway projects, and judge each run by files and output.
 
-    python tests/repeat/run.py --model <m> --times 10 [--case name] [--mode mode]
+    python tests/repeat/run.py --model <m> --times 10 [--jobs 4] [--case name] [--mode mode]
 
 It uses your Claude account. Exit code: 0 all passed, 1 something failed, 2 nothing failed but something was not run.
 """
@@ -10,10 +10,12 @@ import os
 import platform
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections import Counter
 from datetime import date
@@ -28,6 +30,7 @@ from repeat.cases import FAILED, NOT_RUN, PASSED, Run, Verdict  # noqa: E402
 
 PREFIX = "gl-repeat-"
 LIMIT = 120                  # seconds of one run
+MOST_JOBS = 8                # runs at once
 NO_MORE = "no more runs: "   # begins a note after which no further run makes sense
 
 
@@ -95,7 +98,7 @@ def make_game(case, folder, env):
     case.build(game)
     for args in (["init", "-q"], ["symbolic-ref", "HEAD", "refs/heads/stage-2"], ["add", "-A"],
                  ["commit", "-q", "-m", "Lantern Keeper"]):
-        subprocess.run(["git"] + args, cwd=game, env=env, check=True, capture_output=True)
+        subprocess.run(["git"] + args, cwd=game, env=env, check=True, capture_output=True, **processes.ALONE)
     return game
 
 
@@ -117,7 +120,7 @@ def delete(folder):
         if not folder.exists():
             return
         time.sleep(0.5)
-    print("Could not delete %s" % folder, file=sys.stderr)
+    processes.say("Could not delete %s" % folder)
 
 
 # --- one start ---------------------------------------------------------------------------------------------
@@ -145,8 +148,13 @@ def _next_prompt(process, prompts, sent):
         process.stdin.close()
 
 
-def start(command, prompts, cwd, env, out, limit=LIMIT):
-    """(events, stderr, timed out) of one run. Several prompts are sent one by one, each after the last answer."""
+def start(command, prompts, cwd, env, out, limit=LIMIT, halt=None):
+    """(events, stderr, timed out) of one run. Several prompts are sent one by one, each after the last answer.
+
+    Raises KeyboardInterrupt, also in a thread, once the halt is interrupted. The program is stopped then too.
+    """
+    halt = halt or Halt()
+    halt.check()
     several = len(prompts) > 1
     command = command + (["--input-format", "stream-json"] if several else ["--", prompts[0]])
     err = Path(str(out) + ".err")
@@ -158,6 +166,7 @@ def start(command, prompts, cwd, env, out, limit=LIMIT):
         process = program.process
         try:
             while process.poll() is None and not timed_out:
+                halt.check()
                 if several and sent <= len(prompts):
                     if sum(e.get("type") == "result" for e in read_events(out)) >= sent:
                         try:
@@ -239,33 +248,110 @@ def _error(e):
 
 # --- all runs ----------------------------------------------------------------------------------------------
 
-def run_all(chosen, times, one):
-    """[(case, verdicts)]. After a usage limit, a missing login, a missing model or Ctrl+C nothing more is started."""
-    rows = [(case, []) for case in chosen]
-    stopped = None
-    for _ in range(times):
-        for case, verdicts in rows:
-            try:
-                got = stopped or one(case)
-            except KeyboardInterrupt:
-                got = Verdict(NOT_RUN, NO_MORE + "interrupted")
-            except Exception as e:   # one run must not lose the others
-                got = _error(e)
-                print("%-8s %s (%s)  %s" % (got.outcome, case.name, case.mode, got.note), file=sys.stderr, flush=True)
-            verdicts.append(got)
+class Halt:
+    """Why no more runs are started. All threads look at it, so it has no lock that a signal could meet."""
+
+    verdict = None        # of all runs that are not started any more
+    interrupted = False   # Ctrl+C: active runs end too
+
+    def interrupt(self, *_):
+        self.verdict = self.verdict or _interrupted()
+        self.interrupted = True
+
+    def check(self):
+        if self.interrupted:
+            raise KeyboardInterrupt()
+
+
+def _interrupted():
+    return Verdict(NOT_RUN, NO_MORE + "interrupted")
+
+
+def _line(case, number, got, seconds=""):
+    processes.say("%-8s %s%s (%s) %d  %s" % (got.outcome, seconds, case.name, case.mode, number, got.note))
+
+
+def _try(one, case, number):
+    try:
+        return one(case, number)
+    except KeyboardInterrupt:
+        return _interrupted()
+    except (Exception, SystemExit) as e:   # one run must not lose the others
+        got = _error(e)
+        _line(case, number, got)
+        return got
+
+
+def run_all(chosen, times, one, jobs=1, halt=None):
+    """[(case, verdicts)], with up to so many runs at once. one(case, number) is a run, number counts from 1.
+
+    After a usage limit, a missing login, a missing model or Ctrl+C nothing more is started. The halt is the one that
+    the runs look at.
+    """
+    halt = halt or Halt()
+    rows = [(case, [None] * times) for case in chosen]
+    tasks = [(case, verdicts, i) for i in range(times) for case, verdicts in rows]
+    waiting, lock = iter(tasks), threading.Lock()
+
+    def work():
+        while True:
+            with lock:
+                task = next(waiting, None)
+            if task is None:
+                return
+            case, verdicts, i = task
+            got = verdicts[i] = halt.verdict or _try(one, case, i + 1)
             if got.outcome == NOT_RUN and got.note.startswith(NO_MORE):
-                stopped = got
+                halt.verdict = halt.verdict or got
+
+    if jobs == 1:
+        work()
+    else:
+        _in_threads(work, min(jobs, len(tasks)), halt)
     return rows
 
 
-def _keep(out, raw, case):
+def _in_threads(work, count, halt):
+    """Run work in so many threads. Ctrl+C becomes a mark of the halt, so that nothing is cut off in the middle."""
+    before = signal.getsignal(signal.SIGINT)
+    if callable(before):   # else it is ignored, and stays so
+        signal.signal(signal.SIGINT, halt.interrupt)
+    threads = []
+    try:
+        for _ in range(count):
+            thread = threading.Thread(target=work)
+            thread.start()
+            threads.append(thread)
+        while any(t.is_alive() for t in threads):
+            time.sleep(0.05)   # not join(): a signal must be seen soon
+    except BaseException:
+        halt.interrupt()
+        raise
+    finally:
+        for thread in threads:
+            thread.join()
+        if callable(before):
+            signal.signal(signal.SIGINT, before)
+
+
+def _keep(out, raw, case, number):
+    """Copy the output to the raw folder, under the number of the run or the next one that is free."""
     name = "%s-%s" % (re.sub(r"[^a-z]+", "-", case.name.lower()), case.mode)
     Path(raw).mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(out, Path(raw) / ("%s-%d.jsonl" % (name, len(list(Path(raw).glob(name + "-*"))) + 1)))
+    while True:
+        try:
+            with open(Path(raw) / ("%s-%d.jsonl" % (name, number)), "xb") as f:
+                f.write(Path(out).read_bytes())
+            return
+        except FileExistsError:
+            number += 1
 
 
-def once(case, claude, model, raw, about):
-    """Make the project of a case, start Claude Code in it, judge, and delete the project."""
+def once(case, number, claude, model, raw, about, halt):
+    """Make the project of a case, start Claude Code in it, judge, and delete the project.
+
+    about: a set, gets what Claude Code says of itself.
+    """
     folder = Path(tempfile.mkdtemp(prefix=PREFIX))
     begin = time.monotonic()
     try:
@@ -273,17 +359,16 @@ def once(case, claude, model, raw, about):
         game = make_game(case, folder, env)
         before = cases.files_of(game)
         out = folder / "out.jsonl"
-        events, stderr, timed_out = start(command_of(case, claude, model), case.prompts, game, env, out)
+        events, stderr, timed_out = start(command_of(case, claude, model), case.prompts, game, env, out, LIMIT, halt)
         if raw:
-            _keep(out, raw, case)
+            _keep(out, raw, case, number)
         got = verdict(case, Run(game, events, before, cases.files_of(game), stderr, timed_out))
         for e in events:
             if e.get("subtype") == "init":
-                about.update(claude=e.get("claude_code_version"), model=e.get("model"))
+                about.update({("claude", e.get("claude_code_version")), ("model", e.get("model"))})
     finally:
         delete(folder)
-    print("%-8s %4.0f s  %s (%s)  %s" % (got.outcome, time.monotonic() - begin, case.name, case.mode, got.note),
-          file=sys.stderr, flush=True)
+    _line(case, number, got, "%4.0f s  " % (time.monotonic() - begin))
     return got
 
 
@@ -304,6 +389,17 @@ def table(rows):
     return "\n".join(lines)
 
 
+def said_of_itself(about, key):
+    return " / ".join(sorted(str(v) for k, v in set(about) if k == key)) or "?"
+
+
+def hash_at_end():
+    try:
+        return version.plugin_hash()
+    except OSError:   # the table must not be lost
+        return "unreadable"
+
+
 def report(rows, head):
     release = [r for r in rows if not r[0].extra]
     extra = [r for r in rows if r[0].extra]
@@ -322,10 +418,17 @@ def exit_code(rows):
     return 2 if NOT_RUN in outcomes or not outcomes else 0
 
 
+def _jobs(text):
+    if not (text.isascii() and text.isdigit() and 1 <= int(text) <= MOST_JOBS):
+        raise argparse.ArgumentTypeError("%r is not a whole number from 1 to %d" % (text, MOST_JOBS))
+    return int(text)
+
+
 def options(argv):
     parser = argparse.ArgumentParser(description="Repeat runs of the plugin with Claude Code.")
     parser.add_argument("--model", required=True)
     parser.add_argument("--times", type=int, default=10)
+    parser.add_argument("--jobs", type=_jobs, default=1, help="runs at once, 1 to %d" % MOST_JOBS)
     parser.add_argument("--case", action="append", help="name of a case; may be given several times")
     parser.add_argument("--mode", choices=cases.MODES, help="only the rows of this mode")
     parser.add_argument("--no-extra", action="store_true", help="only the cases of a release")
@@ -357,13 +460,17 @@ def main(argv=None):
         args.error(refusal(claude))
     if not chosen:
         args.error("no row fits")
-    about = {}
-    rows = run_all(chosen, args.times, lambda case: once(case, claude, args.model, args.raw, about))
-    head = "guided-learning %s %s, Claude Code %s, model %s (%s), %s, %s" % (
-        version.VERSION, version.plugin_hash(), about.get("claude", "?"), args.model, about.get("model", "?"),
+    about, halt, plugin = set(), Halt(), version.plugin_hash()
+    rows = run_all(chosen, args.times,
+                   lambda case, number: once(case, number, claude, args.model, args.raw, about, halt), args.jobs, halt)
+    head = "guided-learning %s %s, Claude Code %s, model %s (%s), jobs %d, %s, %s" % (
+        version.VERSION, plugin, said_of_itself(about, "claude"), args.model, said_of_itself(about, "model"), args.jobs,
         platform.system(), date.today().isoformat())
+    now = hash_at_end()
+    if now != plugin:
+        head += "\n\nThe plugin changed during the run, from %s to %s: this table does not count." % (plugin, now)
     print(report(rows, head))
-    return exit_code(rows)
+    return 1 if now != plugin else exit_code(rows)
 
 
 if __name__ == "__main__":

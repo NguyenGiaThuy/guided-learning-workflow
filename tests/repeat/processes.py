@@ -6,12 +6,27 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 
 WAIT = 10   # seconds for a stopped program to end
 
+# A program with these options does not get the Ctrl+C of the console: the runner stops it itself.
+ALONE = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+_talk = threading.Lock()
+
+
+def say(text):
+    """A whole line on the error output, whoever else writes there. A lost console is no error."""
+    with _talk:
+        try:
+            sys.stderr.write(text + "\n")
+            sys.stderr.flush()
+        except (OSError, ValueError):
+            pass
+
 
 def _note(text):
-    print("Note: " + text, file=sys.stderr, flush=True)
+    say("Note: " + text)
 
 
 # --- the job object of Windows -----------------------------------------------------------------------------
@@ -68,9 +83,9 @@ class Program:
     def __init__(self, command, **options):
         self._job = None
         if os.name != "nt":
-            self.process = subprocess.Popen(command, start_new_session=True, **options)
+            self.process = subprocess.Popen(command, **ALONE, **options)
             return
-        self.process = subprocess.Popen(command, creationflags=_SUSPENDED, **options)
+        self.process = subprocess.Popen(command, creationflags=_SUSPENDED | ALONE["creationflags"], **options)
         try:
             handle = int(self.process._handle)
             self._job = _new_job()
