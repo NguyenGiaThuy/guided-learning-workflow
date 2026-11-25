@@ -259,7 +259,7 @@ class CliTests(Base):
     def test_an_existing_project_names_its_own_next_command(self):
         helpers.make_project(self.root, {2: {"state": {"status": "planning"}}})
         code, out = self.cli(self.settings())
-        self.assertEqual((code, out.rstrip("\n").split("\n")[-1]), (0, texts.next_line("approve-phase", 2)))
+        self.assertEqual((code, out.rstrip("\n").split("\n")[-1]), (0, texts.next_line("start-phase", 2)))
 
     def test_a_next_command_that_fails_does_not_hide_what_was_done(self):
         helpers.make_project(self.root, {1: {"state": {}}})

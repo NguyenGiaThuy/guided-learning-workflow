@@ -3,6 +3,7 @@ import math
 import re
 
 from . import store, texts
+from .project import inside
 
 
 def _filled(value):
@@ -41,7 +42,15 @@ def part_scripts(part):
     return [str(i) for i in ids] if isinstance(ids, list) else []
 
 
-def _script_gaps(scripts, concepts, parts):
+def _in_code(project, path):
+    """True for a path below the game's root that the scan of the code folders finds."""
+    if re.match(r"[A-Za-z]:|[/\\]", path) or ".." in re.split(r"[/\\]", path):
+        return False
+    extensions = tuple(e.lower() for e in project.settings.get("extensions", []))
+    return path.lower().endswith(extensions) and any(inside(project.root / path, d) for d in project.code_dirs)
+
+
+def _script_gaps(project, scripts, concepts, parts):
     gaps = []
     if not 1 <= len(scripts) <= 5:
         gaps.append(texts.gap_script_count(len(scripts)))
@@ -55,6 +64,9 @@ def _script_gaps(scripts, concepts, parts):
         for key in ("path", "concept"):
             if not _filled(s.get(key)):
                 gaps.append(texts.gap_script(label, key))
+        if _filled(s.get("path")) and not _in_code(project, s["path"]):
+            gaps.append(texts.gap_script_path(label, s["path"], project.settings.get("code", []),
+                                              project.settings.get("extensions", [])))
         for key in ("todos", "tests"):
             if not _filled_list(s.get(key)):
                 gaps.append(texts.gap_script(label, key))
@@ -103,7 +115,7 @@ def plan_gaps(project, n):
     if not concepts:
         gaps.append(texts.GAP_NO_CONCEPT)
     gaps += [texts.gap_concept_name(c.get("id")) for c in concepts if not _filled(c.get("name"))]
-    gaps += _script_gaps(scripts, concepts, parts) + _part_gaps(parts, scripts) + _target_gaps(targets)
+    gaps += _script_gaps(project, scripts, concepts, parts) + _part_gaps(parts, scripts) + _target_gaps(targets)
     asked = {str(q.get("concept")) for q in questions}
     gaps += [texts.gap_question(c.get("name") or c.get("id")) for c in concepts if str(c.get("id")) not in asked]
     gaps += [texts.gap_points(q.get("id")) for q in questions if not _filled_list(q.get("points"))]

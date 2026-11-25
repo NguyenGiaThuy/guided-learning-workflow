@@ -17,6 +17,17 @@
   "locked": [
     "src/Moth.cs"
   ],
+  "handed": {
+    "1": {
+      "name": "Moth",
+      "path": "src/Moth.cs",
+      "todos": [
+        "1.1",
+        "1.2",
+        "1.3"
+      ]
+    }
+  },
   "results": {
     "Unit": {
       "time": 0,

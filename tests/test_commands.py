@@ -1,3 +1,4 @@
+import json
 import shutil
 import subprocess
 import tempfile
@@ -80,7 +81,9 @@ class StartTests(Base):
         self.make({1: {"state": {"status": "planning"}}})
         text = self.refused("start", "2")
         self.assertIn(texts.plan_not_approved(1), text)
-        self.assertTrue(text.endswith(texts.next_line("approve-phase", 1)))
+        self.assertTrue(text.endswith(texts.next_line("start-phase", 1)))   # the plan is not finished
+        self.put_plan(full_plan(1), 1)
+        self.assertTrue(self.refused("start", "2").endswith(texts.next_line("approve-phase", 1)))
 
     def test_skip_needs_a_reason(self):
         self.make({1: {"state": {"status": "planning"}}})
@@ -150,7 +153,9 @@ class StartTests(Base):
     def test_started_already(self):
         self.make({1: {"state": {"status": "planning"}}})
         before = self.snapshot()
-        self.assertIn("phase-1.plan.json", self.accepted("start", "1"))
+        text = self.accepted("start", "1")
+        self.assertIn("phase-1.plan.json", text)
+        self.assertTrue(text.endswith(texts.next_line("approve-phase", 1)))
         self.assertEqual(self.snapshot(), before)
         self.make({1: {"state": {"status": "build", "turn": "ai"}, "plan": full_plan(1)}})
         self.assertTrue(self.refused("start", "1").endswith(texts.next_line("build-phase", 1)))
@@ -159,7 +164,7 @@ class StartTests(Base):
 
     def test_a_skipped_phase_can_be_planned_again(self):
         self.make({1: {"state": {"status": "skipped", "skip": "x", "turn": "owner", "part": 1, "planHash": "h",
-                                 "locked": ["src/Moth.cs"], "branch": "b", "carried": ["old"],
+                                 "locked": ["src/Moth.cs"], "handed": {"1": {}}, "branch": "b", "carried": ["old"],
                                  "log": [{"kind": "note"}]}}})
         self.accepted("start", "1")
         self.assertEqual(self.data(1), {"status": "planning", "carried": ["old"], "log": [{"kind": "note"}]})
@@ -242,7 +247,7 @@ class ApproveTests(Base):
         for item in (texts.gap_script("Owner 1 Moth", "tests"), texts.gap_script("Owner 2 Lamp", "tests"),
                      texts.gap_target_range("wins"), texts.gap_question("Light")):
             self.assertIn(item, text)
-        self.assertTrue(text.endswith(texts.next_line("approve-phase", 2)))
+        self.assertTrue(text.endswith(texts.next_line("start-phase", 2)))
         p["concepts"] = []
         self.assertIn(texts.GAP_NO_CONCEPT, self.gaps(p))
 
@@ -305,10 +310,21 @@ class ApproveTests(Base):
             (lambda p: p[t][0].update(settings=[5]), texts.gap_target("wins", "settings")),
             (lambda p: p[q][0].update(points=[""]), texts.gap_points("q1")),
             (lambda p: p["concepts"][0].update(name=" "), texts.gap_concept_name("ai")),
+        ] + [(lambda p, path=path: p[s][0].update(path=path), texts.gap_script_path("Owner 1 Moth", path, ["src"], [".cs"]))
+             for path in ("Assets/Moth.cs", "C:/game/src/Moth.cs", "C:Moth.cs", "/src/Moth.cs", "\\src\\Moth.cs",
+                          "src/../src/Moth.cs", "src\\..\\src\\Moth.cs", "src/Moth.txt", "src/Moth", "src",
+                          str(self.tmp / "src" / "Moth.cs"))] + [
             (lambda p: p["concepts"][0].pop("name"), texts.gap_concept_name("ai")),
         ]
         for fn, item in cases:
             self.assertIn(item, change(fn))
+
+    def test_paths_in_a_code_folder_are_fine(self):
+        p = full_plan()
+        p["scripts"][0]["path"] = "src/Enemies/Moth.CS"
+        p["scripts"][1]["path"] = "src/La..mp.cs"
+        self.planning(p)
+        self.accepted("approve", "2")
 
     def test_one_sided_target_and_empty_part_are_fine(self):
         p = full_plan(parts=TWO_PARTS + [{"name": "Rest", "tasks": ["Sound"], "scripts": []},
@@ -368,7 +384,57 @@ class ApproveTests(Base):
         self.planning()
         self.accepted("approve", "2")
         self.put_plan(dict(full_plan(), targets=[]))
-        self.assertIn(texts.GAP_NO_TARGET, self.refused("approve", "2 change: none"))
+        text = self.refused("approve", "2 change: none")
+        self.assertIn(texts.GAP_NO_TARGET, text)
+        self.assertTrue(text.endswith(texts.next_line("approve-phase", 2)))   # it is planned already
+
+    HANDED = {"1": {"name": "Moth", "path": "src/Moth.cs", "todos": ["1.1", "1.2"]},
+              "2": {"name": "Lamp", "path": "src/Lamp.cs", "todos": ["2.1"]}}
+
+    def test_a_change_of_a_part_that_is_handed_over_is_refused(self):
+        bat = helpers.script(4, "Bat", ["4.1"], ["BatTests.Flies"])
+
+        def add_bat(p, part):
+            p["scripts"].append(bat)
+            p["parts"][part]["scripts"].append(4)
+
+        def drop_lamp(p):
+            p["scripts"].pop(1)
+            p["parts"][0]["scripts"].remove(2)
+
+        cases = [(lambda p: add_bat(p, 0), texts.handed_added("Owner 4 Bat")),
+                 (drop_lamp, texts.handed_removed("Owner 2 Lamp")),
+                 (lambda p: p["scripts"][0]["todos"].append("1.3"), texts.handed_todo_added("Owner 1 Moth", "1.3")),
+                 (lambda p: p["scripts"][0]["todos"].remove("1.1"), texts.handed_todo_removed("Owner 1 Moth", "1.1")),
+                 (lambda p: p["scripts"][1].update(path="src/Light.cs"),
+                  texts.handed_path("Owner 2 Lamp", "src/Lamp.cs", "src/Light.cs")),
+                 (lambda p: p["parts"].reverse(), texts.handed_added("Owner 3 Keeper")),
+                 (lambda p: p["parts"][0]["scripts"].append(p["parts"][1]["scripts"].pop()),
+                  texts.handed_added("Owner 3 Keeper"))]
+        for stored in ({"turn": "owner", "part": 0}, {"turn": "ai", "part": 1}):
+            for change, item in cases:
+                p = json.loads(json.dumps(full_plan(parts=TWO_PARTS)))
+                change(p)
+                self.planning(p, dict({"status": "build", "planHash": "0" * 64, "handed": self.HANDED}, **stored))
+                text = self.refused("approve", "2 change: more")
+                self.assertIn(texts.handed_changed(2), text)
+                self.assertIn(texts.bullet(item), text.splitlines())
+                self.assertTrue(text.endswith(texts.next_line("approve-phase", 2)))
+
+    def test_other_changes_and_those_of_a_later_part_are_accepted(self):
+        bat = helpers.script(4, "Bat", ["4.1"], ["BatTests.Flies"])
+        for change in (lambda p: p["targets"][0].update(max=70),
+                       lambda p: p["scripts"][0].update(name="Night moth", tests=["MothTests.Turns"]),
+                       lambda p: p["scripts"][0]["todos"].reverse(),
+                       lambda p: p["scripts"][2].update(path="src/Guard.cs", todos=["3.1", "3.2"]),
+                       lambda p: (p["scripts"].append(bat),
+                                  p["parts"].append({"name": "Bat", "tasks": ["Shell"], "scripts": [4]}))):
+            p = json.loads(json.dumps(full_plan(parts=TWO_PARTS)))
+            change(p)
+            self.planning(p, {"status": "build", "planHash": "0" * 64, "handed": self.HANDED, "turn": "owner", "part": 0})
+            self.accepted("approve", "2 change: more")
+        self.planning(full_plan(parts=TWO_PARTS), {"status": "build", "planHash": "0" * 64, "turn": "ai", "part": 0})
+        self.accepted("approve", "2 change: nothing is handed over yet")
 
     def test_approved_already(self):
         self.planning()
@@ -412,7 +478,9 @@ class BuildTests(Base):
         text = self.refused("build", "2")
         self.assertIn(texts.plan_not_approved(2), text)
         self.assertIn(texts.GAP_NO_TARGET, text)
-        self.assertTrue(text.endswith(texts.next_line("approve-phase", 2)))
+        self.assertTrue(text.endswith(texts.next_line("start-phase", 2)))
+        self.put_plan(full_plan())
+        self.assertTrue(self.refused("build", "2").endswith(texts.next_line("approve-phase", 2)))
 
     def test_first_build_stores_the_turn_and_the_branch(self):
         self.build({"branch": "main"})
@@ -537,14 +605,17 @@ class HandOverTests(Base):
         d = self.data()
         self.assertEqual((d["turn"], d["part"]), ("owner", 0))
         self.assertEqual(d["locked"], ["src/Moth.cs", "src/Lamp.cs", "src/Keeper.cs"])
+        self.assertEqual(d["handed"], {str(s["id"]): {k: s[k] for k in ("name", "path", "todos")}
+                                       for s in full_plan()["scripts"]})
 
     def test_locks_are_a_union_and_singular_text(self):
         passed = {t: "passed" for t in ("MothTests.Turns", "MothTests.Dies", "LampTests.Glows")}
-        self.build({"part": 1, "locked": ["src/Moth.cs", "src/Lamp.cs"]}, full_plan(parts=TWO_PARTS), tests=passed,
+        self.build({"part": 1, "locked": ["src/Moth.cs", "src/Lamp.cs"], "handed": {"1": {}}}, full_plan(parts=TWO_PARTS), tests=passed,
                    files={"src/Moth.cs": shell([]), "src/Lamp.cs": shell([])})
         out = commands.hand_over(self.project, 2)
         self.assertIn("Phase 2, part 2 handed over. Your turn: 1 script, 1 TODO.", out.text)
         self.assertEqual(self.data()["locked"], ["src/Moth.cs", "src/Lamp.cs", "src/Keeper.cs"])
+        self.assertEqual(self.data()["handed"], {"1": {}, "3": {"name": "Keeper", "path": "src/Keeper.cs", "todos": ["3.1"]}})
 
     def test_missing_todo(self):
         self.assertEqual(self.misses(files={"src/Moth.cs": shell(["1.1"])}),

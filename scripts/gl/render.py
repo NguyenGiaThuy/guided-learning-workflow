@@ -49,7 +49,7 @@ def next_command(st):
     """(command, phase number) that goes on with the phase."""
     n = st.n
     if st.status == "planning":
-        return "approve-phase", n
+        return ("start-phase" if st.plan_gaps else "approve-phase"), n
     if st.status in ("done", "skipped"):
         return "start-phase", n + 1
     if st.status == "build":

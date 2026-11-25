@@ -3,6 +3,7 @@ import os
 import subprocess
 
 from . import markdown, results, scan, store, texts
+from .plan import plan_gaps
 from .project import LEARNING, norm
 
 DETACHED = texts.DETACHED
@@ -73,6 +74,7 @@ class PhaseState:
         self.targets_open = []        # ids with neither a value in range nor a reason
         self.open_items = []          # everything /finish-phase checks and misses
         self.wrap_items = []          # the part of open_items that belongs to the wrap-up
+        self.plan_gaps = []           # while planning: what keeps the plan from being approved
         self.plan_changed = False     # the plan differs from the approved one
         self.problems = []            # lost TODOs and missing files: shown even while building
         self.wrong_branch = None
@@ -411,6 +413,7 @@ def compute(project, n):
         st.skip_reason = data["skip"]
     if st.status == "planning":
         st.open_items.append(texts.plan_not_approved(n))
+        st.plan_gaps = plan_gaps(project, n)
     if st.status == "build":
         _build(project, st, data, plan)
     if st.status in BRANCH_STATUSES and st.branch and data.get("turn"):   # the first build sets the branch again

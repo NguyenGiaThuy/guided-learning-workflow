@@ -5,6 +5,7 @@ from collections import namedtuple
 
 from . import render, results, scan, scorecard, state, store, texts, version
 from .plan import part_scripts, plan_gaps
+from .project import norm
 
 Outcome = namedtuple("Outcome", "ok text")
 
@@ -146,12 +147,12 @@ def _start(project, n, rest):
         if path.exists() and data.get("status") != "skipped":
             st = state.compute(project, n)
             if st.status == "planning":
-                raise _Stop(True, _planning_lines(project, n, data), render.next_line(st))
+                raise _Stop(True, _planning_lines(project, n, data), texts.next_line("approve-phase", n))
             raise _refuse([texts.already_started(n, st.status)], render.next_line(st))
         _add(carried, data.get("carried") or [])
         _leave_previous(project, n, reason, carried)
         _create_files(project, n)
-        for key in ("skip", "turn", "part", "planHash", "branch", "locked", "tasksDone"):
+        for key in ("skip", "turn", "part", "planHash", "branch", "locked", "handed", "tasksDone"):
             data.pop(key, None)   # left over if the phase was skipped before
         data["status"] = "planning"
         if carried:
@@ -178,9 +179,9 @@ def _planning_lines(project, n, data):
 
 # --- approve: the refusal of an incomplete plan -----------------------------------------------
 
-def _gap_stop(project, n, gaps):
+def _gap_stop(project, n, gaps, command):
     name = project.plan_path(n).name
-    return _refuse([texts.plan_incomplete(name)] + [texts.bullet(g) for g in gaps], texts.next_line("approve-phase", n))
+    return _refuse([texts.plan_incomplete(name)] + [texts.bullet(g) for g in gaps], texts.next_line(command, n))
 
 
 # --- approve -----------------------------------------------------------------------------------
@@ -189,6 +190,27 @@ def _branch(project):
     """The branch to store: None on a detached HEAD or without git."""
     current = state.current_branch(project)
     return None if current == state.DETACHED else current
+
+
+def _handed_changes(project, data, plan):
+    """What a changed plan changes in the scripts and TODOs of the parts that are handed over."""
+    before = data.get("handed")
+    if not isinstance(before, dict):
+        return []
+    count = data.get("part", 0) + (1 if data.get("turn") == "owner" else 0)
+    now = {str(s.get("id")): s for s in _scripts_of(plan, range(count))}
+    items = [texts.handed_added(_label(s)) for i, s in now.items() if i not in before]
+    for i, old in before.items():
+        s, label = now.get(i), texts.script_label(i, old.get("name", ""))
+        if s is None:
+            items.append(texts.handed_removed(label))
+            continue
+        if norm(project.root / s["path"]) != norm(project.root / old.get("path", "")):
+            items.append(texts.handed_path(label, old.get("path", ""), s["path"]))
+        todos = old.get("todos", [])
+        items += [texts.handed_todo_added(label, t) for t in s["todos"] if t not in todos]
+        items += [texts.handed_todo_removed(label, t) for t in todos if t not in s["todos"]]
+    return items
 
 
 def _accept_change(project, n, data, reason):
@@ -205,7 +227,10 @@ def _accept_change(project, n, data, reason):
         raise _refuse([texts.change_needs_reason(n)], here)
     gaps = plan_gaps(project, n)
     if gaps:
-        raise _gap_stop(project, n, gaps)
+        raise _gap_stop(project, n, gaps, "approve-phase")
+    changed = _handed_changes(project, data, store.read(path))
+    if changed:
+        raise _refuse([texts.handed_changed(n)] + [texts.bullet(c) for c in changed], here)
     new = store.file_hash(path)
     data.setdefault("changes", []).append({"time": store.now(), "reason": reason,
                                            "from": data.get("planHash"), "to": new})
@@ -227,7 +252,7 @@ def _approve(project, n, rest):
         elif status == "planning":
             gaps = plan_gaps(project, n)
             if gaps:
-                raise _gap_stop(project, n, gaps)
+                raise _gap_stop(project, n, gaps, "start-phase")   # planning goes on
             data.update(status="build", planHash=store.file_hash(project.plan_path(n)), branch=_branch(project))
             count = len(store.read(project.plan_path(n))["scripts"])
             lines[:] = [texts.approved(n)] + ([texts.few_scripts_note(count)] if count < 3 else [])
@@ -378,7 +403,9 @@ def hand_over(project, n=None):
         done[:] = _hand_over_check(project, n, data)
         locked = list(data.get("locked") or [])
         _add(locked, [s["path"] for s in done])
-        data.update(locked=locked, turn="owner")
+        handed = dict(data.get("handed") or {})
+        handed.update({str(s["id"]): {k: s.get(k) for k in ("name", "path", "todos")} for s in done})
+        data.update(locked=locked, handed=handed, turn="owner")
 
     try:
         if n is None:

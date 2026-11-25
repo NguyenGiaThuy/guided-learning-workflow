@@ -387,6 +387,11 @@ def gap_script(label, key):
     return "%s: needs %s." % (label, _SCRIPT_KEYS[key])
 
 
+def gap_script_path(label, path, folders, extensions):
+    return ("%s: the path %s must begin in a code folder of project.json (%s), without \"..\", and end with %s."
+            % (label, path, ", ".join(folders), " or ".join(extensions)))
+
+
 def gap_unknown_concept(label, concept):
     return "%s: concept %s is not in the plan." % (label, concept)
 
@@ -449,6 +454,31 @@ def change_needs_reason(n):
 
 def change_accepted(n):
     return "The changed plan of phase %s is accepted, and the reason is recorded." % n
+
+
+def handed_changed(n):
+    return ("A part of phase %s that is handed over cannot change any more. Put this back, and plan new work "
+            "in a new part after it:" % n)
+
+
+def handed_added(label):
+    return "%s was added." % label
+
+
+def handed_removed(label):
+    return "%s was removed." % label
+
+
+def handed_path(label, before, now):
+    return "%s: the path was changed from %s to %s." % (label, before, now)
+
+
+def handed_todo_added(label, todo):
+    return "%s: TODO %s was added." % (label, todo)
+
+
+def handed_todo_removed(label, todo):
+    return "%s: TODO %s was removed." % (label, todo)
 
 
 def build_is_over(n, status):

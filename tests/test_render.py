@@ -119,6 +119,8 @@ class StatusTextTests(Base):
     def test_planning_done_and_skipped(self):
         s = script(1, "Moth", ["1.1"], [])
         planning = self.show(plan([s]), {}, {"status": "planning"})
+        self.assertTrue(planning.endswith(texts.next_line("start-phase", 2) + "\n"))   # the plan has gaps
+        planning = self.show(helpers.full_plan(), {}, {"status": "planning"})
         self.assertTrue(planning.endswith(texts.next_line("approve-phase", 2) + "\n"))
         done = self.show(plan([s]), {}, {"status": "done"})
         self.assertTrue(done.startswith("Phase 2 - done\n"))
