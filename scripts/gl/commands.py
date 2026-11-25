@@ -474,8 +474,9 @@ def closing_text(project, n):
     lines = [texts.closing_done(n, _docs_path(project, project.md_path(n)))]
     if branch:
         lines.append(texts.closing_branch(branch, merged))
+    in_git = bool(branch) or state.current_branch(project) is not None   # else there is nothing to commit to
     lines += [texts.closing_carried(n + 1, weak, differently),
-              texts.next_in_new_chat("start-phase", n + 1, "" if merged else texts.MERGE_FIRST)]
+              texts.next_in_new_chat("start-phase", n + 1, texts.closing_first(in_git, not merged))]
     return "\n".join(lines)
 
 
@@ -498,11 +499,7 @@ def _finish(project, n, rest):
 
     project.note_open(n, project.update_state(n, apply))
     scorecard.write_once(project, n)
-    text = closing_text(project, n)
-    if not project.is_rehearsal and state.current_branch(project) is not None:
-        text = texts.commit_first(_docs_path(project, project.state_path(n)),
-                                  _docs_path(project, project.md_path(n))) + "\n" + text
-    return Outcome(True, text)
+    return Outcome(True, closing_text(project, n))
 
 
 # --- dispatch --------------------------------------------------------------------------------

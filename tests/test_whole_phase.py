@@ -170,12 +170,10 @@ class WholePhaseTests(unittest.TestCase):
         self.commit()
 
         text = self.typed("/finish-phase 1")
-        first, closing = text.split("\n", 1)
-        self.assertEqual(first, texts.commit_first("Docs/learning/phase-1.json", "Docs/learning/phase-1.md"))
-        self.assertEqual(closing, "Phase 1 is done. Saved in Docs/learning/phase-1.md.\n"
-                                  "Branch stage-1: not merged.\n"
-                                  "Carried to phase 2: Enemy AI | start smaller\n"
-                                  "Next: merge the branch, then open a new chat and type /start-phase 2")
+        self.assertEqual(text, "Phase 1 is done. Saved in Docs/learning/phase-1.md.\n"
+                               "Branch stage-1: not merged.\n"
+                               "Carried to phase 2: Enemy AI | start smaller\n"
+                               "Next: commit, merge the branch, then open a new chat and type /start-phase 2")
         self.assertEqual(self.hook("Stop", last_assistant_message="Done.")["decision"], "block")
         self.assertIsNone(self.hook("Stop", last_assistant_message="Done.\n" + text))
         changed = [line[3:].strip() for line in self.git("status", "--porcelain").splitlines()]

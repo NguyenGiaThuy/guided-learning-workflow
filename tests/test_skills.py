@@ -180,7 +180,8 @@ class RuleTests(unittest.TestCase):
         self.says("build-phase", "smoke test")
 
     def test_the_phase_files_are_committed_before_the_merge(self):
-        self.says("finish-phase", "commit", "first", "before the closing text")
+        self.assertNotIn("files to commit", read("finish-phase"))   # the closing text says it
+        self.says("finish-phase", "no merge, no commit")
         self.says("summarize-phase", "after `/finish-phase N`", "before the merge")
 
     def test_missing_results_in_a_rehearsal_are_asked_for(self):

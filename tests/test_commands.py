@@ -9,7 +9,7 @@ from unittest import mock
 
 import helpers
 from helpers import FULL_MD, OLD, TEST_CODE, TWO_PARTS, full_plan, shell, suite_result
-from gl import commands, project, render, state, store, texts
+from gl import commands, project, render, state, store, texts, version
 
 
 class Base(unittest.TestCase):
@@ -1011,10 +1011,8 @@ class FinishTests(Base):
         closing = ("Phase 2 is done. Saved in Docs/learning/phase-2.md.\n"
                    "Branch stage-2: not merged.\n"
                    "Carried to phase 3: Enemy AI | start smaller\n"
-                   "Next: merge the branch, then open a new chat and type /start-phase 3")
-        self.assertEqual(out.text, texts.commit_first("Docs/learning/phase-2.json", "Docs/learning/phase-2.md")
-                         + "\n" + closing)
-        self.assertIn("ommit them before the merge", out.text.split("\n")[0])
+                   "Next: commit, merge the branch, then open a new chat and type /start-phase 3")
+        self.assertEqual(out.text, closing)   # nothing above it
         d = self.data()
         self.assertEqual((d["status"], d["locked"], d["closing"]), ("done", [], {"pending": True, "tries": 0}))
         self.assertEqual(commands.closing_text(self.project, 2), closing)
@@ -1022,18 +1020,31 @@ class FinishTests(Base):
     def test_closing_text_of_a_merged_branch_and_no_weak_concept(self):
         log = self.LOG[:1] + [{"kind": "rating", "concept": "ai", "rating": "on my own"}]
         self.ready({"log": log})
-        self.assertEqual(self.accepted("finish", "phase-2").split("\n", 1)[1],
+        self.assertEqual(self.accepted("finish", "phase-2"),
                          "Phase 2 is done. Saved in Docs/learning/phase-2.md.\n"
                          "Branch stage-2: merged.\n"
                          "Carried to phase 3: no weak concept | start smaller\n"
-                         "Next: open a new chat and type /start-phase 3")
+                         "Next: commit, then open a new chat and type /start-phase 3")
 
     def test_closing_text_without_a_branch(self):
         self.branch = None
         self.ready({"branch": None})
         text = self.accepted("finish", "2")
         self.assertNotIn("Branch", text)
-        self.assertEqual(text, commands.closing_text(self.project, 2))   # without git there is nothing to commit
+        self.assertEqual(text, commands.closing_text(self.project, 2))
+        self.assertEqual(text.split("\n")[-1], "Next: open a new chat and type /start-phase 3")   # no git, no commit
+
+    def test_closing_text_on_a_detached_head(self):
+        self.branch = state.DETACHED
+        self.ready({"branch": None})
+        self.assertEqual(self.accepted("finish", "2").split("\n")[-1],
+                         "Next: commit, then open a new chat and type /start-phase 3")
+
+    def test_the_last_line_is_the_one_of_the_design(self):
+        design = (version.ROOT / "docs" / "design.md").read_text(encoding="utf-8")
+        self.merged = False
+        self.ready()
+        self.assertIn("\n%s\n```" % self.accepted("finish", "2").split("\n")[-1], design)
 
     def test_second_time_changes_nothing(self):
         self.ready()

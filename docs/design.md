@@ -150,7 +150,7 @@ Then it prints once, and starts nothing:
 Phase 2 is done. Saved in Docs/learning/phase-2.md.
 Branch stage-2: not merged.
 Carried to phase 3: <weak concepts> | <what you would do differently>
-Next: merge the branch, then open a new chat and type /start-phase 3
+Next: commit, merge the branch, then open a new chat and type /start-phase 3
 ```
 
 ## Consistent behavior ✓

@@ -200,8 +200,7 @@ class PromptTests(Base):
         self.call("Stop", last_assistant_message="/finish-phase 2")
         self.assertEqual(self.data()["status"], "build")
         out = self.prompt("/finish-phase 2")
-        first = texts.commit_first("Docs/learning/phase-2.json", "Docs/learning/phase-2.md")
-        self.assertEqual(out["hookSpecificOutput"]["additionalContext"], first + "\n" + commands.closing_text(found, 2))
+        self.assertEqual(out["hookSpecificOutput"]["additionalContext"], commands.closing_text(found, 2))
         self.assertEqual((self.data()["status"], self.data()["closing"]), ("done", {"pending": True, "tries": 0}))
 
     def test_learning_py_has_no_owner_command(self):

@@ -361,7 +361,7 @@ REASON = "Moths are fun at $5 of oil, so I \"keep\" them."
 CLOSING = ("Phase 2 is done. Saved in Docs/learning/phase-2.md.\n"
            "Branch stage-2: merged.\n"
            "Carried to phase 3: Enemy AI | start smaller\n"
-           "Next: open a new chat and type /start-phase 3")
+           "Next: commit, then open a new chat and type /start-phase 3")
 
 
 def _game(root, state, code, plan=None, number=2):

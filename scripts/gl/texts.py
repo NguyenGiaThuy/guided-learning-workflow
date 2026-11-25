@@ -572,10 +572,6 @@ def still_in(status):
     return "The phase is still in %s." % status
 
 
-def commit_first(state, notes):
-    return "%s and %s have changed. Commit them before the merge." % (state, notes)
-
-
 def closing_done(n, path):
     return "Phase %s is done. Saved in %s." % (n, path)
 
@@ -589,6 +585,12 @@ def closing_carried(n, weak, differently):
 
 
 MERGE_FIRST = "merge the branch, then "
+COMMIT_FIRST = "commit, "   # closing has just changed the phase files
+
+
+def closing_first(commit, merge):
+    """What the owner does before the new chat of the next phase."""
+    return (COMMIT_FIRST + MERGE_FIRST if merge else COMMIT_FIRST + "then ") if commit else ""
 
 
 # --- records and the command line ----------------------------------------------------------------
