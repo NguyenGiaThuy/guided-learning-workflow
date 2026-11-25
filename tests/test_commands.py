@@ -1374,7 +1374,46 @@ class DoneElsewhereTests(GitBase):
         text = texts.done_not_merged(1, "stage-1")
         self.assertIn("Phase 1 is done on branch stage-1, not merged", text)
         self.assertIn("/start-phase 2", text)
-        self.assertNotIn("skip", text)
+        self.assertIn("without merging: git switch stage-1, and there type %s" % texts.skip_command(2), text)
+        self.assertIn(texts.skip_command(4), texts.done_not_merged(1, "stage-1", 4))
+        self.assertNotRegex(text, "delete|branch -")
+
+    def follow_the_skip(self, n, branch, following):
+        """Do what the refusal says for going on without merging."""
+        text = self.refused("start", str(following))
+        self.assertIn("git switch %s, and there type %s" % (branch, texts.skip_command(following)), text)
+        self.git("switch", "-q", branch)
+        refused = self.refused("start", str(following))
+        self.assertIn(texts.previous_not_merged(following, branch) if following == n + 1
+                      else texts.previous_missing(following), refused)   # only the skip leaves the merge out
+        before = self.project.state_path(n).read_bytes()
+        shown = self.accepted("start", "%d skip: merged later" % following)
+        self.assertIn(texts.carried_concept("Enemy AI") if following == n + 1 else "was skipped", shown)
+        self.assertEqual(self.project.state_path(n).read_bytes(), before)
+        self.assertEqual(store.read(self.project.state_path(following))["status"], "planning")
+
+    def test_going_on_without_merging_works_as_the_text_says(self):
+        self.finish()
+        self.follow_the_skip(1, "stage-1", 2)
+        helpers.write_json(self.project.plan_path(2), full_plan(2))
+        self.accepted("approve", "2")
+        self.accepted("build", "2")
+        self.assertEqual(store.read(self.project.state_path(1))["status"], "done")
+        self.assertNotIn("skip", store.read(self.project.state_path(1)))
+        self.assertEqual(store.read(self.project.state_path(2))["branch"], "stage-1")
+
+    def test_going_on_without_merging_after_a_phase_that_is_skipped_here(self):
+        self.finish()
+        helpers.make_project(self.project.root, {2: {"state": {"status": "skipped", "skip": "x"}}})
+        self.commit()
+        self.follow_the_skip(1, "stage-1", 3)
+        self.assertEqual(store.read(self.project.state_path(2))["status"], "skipped")
+
+    def test_an_open_phase_is_still_checked_without_the_skip(self):
+        self.finish()
+        self.git("switch", "-q", "stage-1")
+        self.accepted("start", "2 skip: merged later")
+        self.assertIn(texts.previous_open(3), self.refused("start", "3"))
 
     def test_every_command_names_the_branch_and_the_merge(self):
         self.finish()

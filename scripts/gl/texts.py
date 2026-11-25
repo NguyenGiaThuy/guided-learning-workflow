@@ -326,9 +326,11 @@ def previous_not_merged(n, branch):
 
 def done_not_merged(n, branch, following=None):
     """following: the phase to start after the merge, if it is not the next one."""
+    following = following or n + 1
     return ("Phase %s is done on branch %s, not merged into what is checked out here. Merge %s, and then type "
-            "/start-phase %s. To look at phase %s before that: git switch %s"
-            % (n, branch, branch, following or n + 1, n, branch))
+            "/start-phase %s. To go on without merging: git switch %s, and there type %s. To look at phase %s before "
+            "the merge: git switch %s"
+            % (n, branch, branch, following, branch, skip_command(following), n, branch))
 
 
 def phase_files_uncommitted(n, names):
