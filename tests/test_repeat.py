@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import queue
 import re
 import signal
 import subprocess
@@ -499,13 +500,13 @@ class ErrorTests(CaseBase):
 
     def test_ctrl_c_keeps_the_table(self):
         def one(c, number):
-            if c.name == "finish":
+            if c.name == "finish" and number == 2:
                 raise KeyboardInterrupt()
             return cases.Verdict("passed")
 
         rows = run.run_all([case("status line"), case("finish"), case("closing text")], 2, one)
         self.assertEqual([[v.outcome for v in verdicts] for _, verdicts in rows],
-                         [["passed", "not run"], ["not run"] * 2, ["not run"] * 2])
+                         [["passed"] * 2, ["passed", "not run"], ["not run"] * 2])
         self.assertIn("interrupted", run.table(rows))
         self.assertEqual(run.exit_code(rows), 2)
 
@@ -848,21 +849,35 @@ class ParallelTests(ParallelBase):
         rows = self.run_all([self.case("a"), self.case("b")], 2, jobs=1)
         self.assert_outcomes(rows, [["passed"] * 2] * 2)
         self.assertEqual(self.seen(), 1)
-        self.assertEqual(self.order(), ["a", "b", "a", "b"])
+        self.assertEqual(self.order(), ["a", "a", "b", "b"])
 
-    def test_runs_are_started_in_the_order_of_the_rows(self):
-        started = []
+    def test_runs_are_started_row_by_row(self):
+        wanted = [(name, number) for name in ("a a", "b a", "c a") for number in (1, 2, 3)]
+        for jobs in (1, 2, 4):
+            started, got, ends = queue.Queue(), [], {key: threading.Event() for key in wanted}
 
-        def one(c, number):
-            started.append((c.name, number))
-            time.sleep(0.01)
-            return cases.Verdict("passed")
+            def one(c, number):
+                started.put((c.name, number))
+                ends[c.name, number].wait(20)
+                return cases.Verdict("passed")
 
-        run.run_all([self.case("a"), self.case("b")], 6, one, 4)
-        wanted = [(name, number) for number in range(1, 7) for name in ("a a", "b a")]
-        self.assertEqual(sorted(started), sorted(wanted))
-        for i, got in enumerate(started):
-            self.assertLess(abs(wanted.index(got) - i), 4)
+            def end_one_by_one():
+                try:
+                    active = sorted(started.get(timeout=10) for _ in range(jobs))   # at once, so in any order
+                    got.extend(active)
+                    while len(got) < len(wanted):
+                        ends[active.pop()].set()   # the one that was started last ends first
+                        active.append(started.get(timeout=10))
+                        got.append(active[-1])
+                finally:
+                    for e in ends.values():
+                        e.set()
+
+            thread = threading.Thread(target=end_one_by_one)
+            thread.start()
+            run.run_all([self.case("a"), self.case("b"), self.case("c")], 3, one, jobs)
+            thread.join()
+            self.assertEqual(got, wanted, jobs)
 
     def test_each_run_has_its_own_folder_git_settings_and_raw_file(self):
         raw = self.top / "raw"
@@ -890,15 +905,17 @@ class ParallelTests(ParallelBase):
 
     def test_the_limit_counts_from_the_start_of_each_run(self):
         begin = time.monotonic()
-        rows = self.run_all([self.case("hang"), self.case("a"), self.case("b")], 2, jobs=2, limit=3)
-        self.assert_outcomes(rows, [["failed"] * 2, ["passed"] * 2, ["passed"] * 2])
+        chosen = [self.case("hang"), self.case("hang", 1), self.case("a"), self.case("b")]
+        rows = self.run_all(chosen, 1, jobs=2, limit=3)   # the last two wait longer than the limit
+        self.assert_outcomes(rows, [["failed"], ["failed"], ["passed"], ["passed"]])
         self.assertIn("stopped after", rows[0][1][0].note)
         self.assertGreater(time.monotonic() - begin, 3)
         self.assert_no_beat(2)
 
     def test_a_usage_limit_starts_no_more_and_active_runs_end_as_usual(self):
-        rows = self.run_all([self.case("slow"), self.case("limit"), self.case("a")], 2, jobs=2, together=2)
-        self.assert_outcomes(rows, [["passed", "not run"], ["not run"] * 2, ["not run"] * 2])
+        chosen = [self.case("slow"), self.case("limit"), self.case("a"), self.case("b")]
+        rows = self.run_all(chosen, 1, jobs=2, together=2)
+        self.assert_outcomes(rows, [["passed"], ["not run"], ["not run"], ["not run"]])
         self.assertEqual({v.note for _, verdicts in rows for v in verdicts if v.outcome == "not run"},
                          {run.NO_MORE + "usage limit"})
         self.assertEqual(sorted(self.order()), ["limit", "slow"])
@@ -912,11 +929,47 @@ class ParallelTests(ParallelBase):
         self.assertEqual(rows[1][1][0].note, "OSError: boom")
 
     def test_no_error_ends_a_thread(self):
-        def one(c, number):
-            raise SystemExit("gone")
+        class Mute(Exception):
+            def __str__(self):
+                raise RuntimeError("no text")
 
-        rows = run.run_all([self.case("a")], 3, one, 2)
-        self.assert_outcomes(rows, [["failed"] * 3])
+        class Odd(BaseException):
+            pass
+
+        for error in (SystemExit("gone"), Mute(), Odd()):
+            def one(c, number):
+                if number < 3:
+                    raise error
+                return cases.Verdict("passed")
+
+            for jobs in (1, 2):
+                rows = run.run_all([self.case("a")], 4, one, jobs)
+                self.assert_outcomes(rows, [["failed"] * 2 + ["passed"] * 2])
+                self.assertTrue(rows[0][1][0].note.startswith(type(error).__name__))
+
+    def test_a_run_that_the_runner_lost_is_a_failure(self):
+        for jobs in (1, 2):
+            with mock.patch.object(processes.sys, "stderr", self.lines):
+                rows = run.run_all([self.case("a"), self.case("b")], 2,
+                                   lambda c, n: cases.Verdict("passed") if n == 2 else None, jobs)
+            self.assert_outcomes(rows, [["failed", "passed"]] * 2)
+            self.assertEqual(rows[0][1][0].note, "the runner lost this run")
+            self.assertEqual(run.exit_code(rows), 1)
+
+    def test_git_that_does_not_end_is_an_error_of_its_run(self):
+        real, limits = subprocess.run, []
+
+        def git(command, **options):
+            limits.append(options.get("timeout"))
+            if len(limits) == 1:
+                raise subprocess.TimeoutExpired(command, 60)
+            return real(command, **options)
+
+        with mock.patch.object(run.subprocess, "run", git):
+            rows = self.run_all([self.case("a")], 2, jobs=1)
+        self.assert_outcomes(rows, [["failed", "passed"]])
+        self.assertIn("TimeoutExpired", rows[0][1][0].note)
+        self.assertEqual(set(limits), {60})
 
     def test_the_table_does_not_depend_on_the_order_of_the_ends(self):
         def one(c, number):
@@ -994,23 +1047,33 @@ class InterruptTests(ParallelBase):
         thread.start()
         rows = run.run_all([self.case("a"), self.case("b"), self.case("c")], 2, one, 2, halt)
         thread.join()
-        self.assert_outcomes(rows, [["passed", "not run"], ["not run"] * 2, ["not run"] * 2])
+        self.assert_outcomes(rows, [["passed"] * 2, ["not run"] * 2, ["not run"] * 2])
         self.assertEqual(signal.getsignal(signal.SIGINT), before)
 
 
 class HeadTests(unittest.TestCase):
     """What stands above and below the table."""
 
-    def main(self, *args, hashes=("aaaaaa", "aaaaaa"), outcome="passed"):
+    def main(self, *args, hashes=("aaaaaa",), outcome="passed"):
+        """hashes: what the plugin hash is each time that it is asked for; then the last one."""
+        values, self.starts = iter(hashes), []
+
+        def plugin_hash():
+            value = next(values, hashes[-1])
+            if isinstance(value, Exception):
+                raise value
+            return value
+
         def once(c, number, claude, model, raw, about, halt):
+            self.starts.append(number)
             about.update({("claude", "9.9"), ("model", "small-1")})
             return cases.Verdict(outcome, "why")
 
         out = io.TextIOWrapper(io.BytesIO())
         with mock.patch.object(run, "once", once), mock.patch.object(
-                run.version, "plugin_hash", side_effect=list(hashes)), mock.patch.object(
+                run.version, "plugin_hash", plugin_hash), mock.patch.object(
                 sys, "stdout", out), mock.patch.object(sys, "stderr", io.TextIOWrapper(io.BytesIO())):
-            code = run.main(["--model", "small", "--times", "2", "--case", "finish", "--claude", "x"] + list(args))
+            code = run.main(["--model", "small", "--times", "4", "--case", "finish", "--claude", "x"] + list(args))
         out.seek(0)
         return code, out.read()
 
@@ -1023,19 +1086,61 @@ class HeadTests(unittest.TestCase):
         self.assertIn("jobs 1", self.main()[1].splitlines()[0])
         self.assertNotIn("does not count", text)
 
-    def test_a_plugin_that_changed_meanwhile_is_noticed(self):
-        for jobs in ("1", "3"):
-            code, text = self.main("--jobs", jobs, hashes=("aaaaaa", "bbbbbb"))
-            self.assertEqual(code, 1)
-            self.assertIn("| finish | default | 2 of 2 |", text)
-            self.assertRegex(text, r"aaaaaa.*bbbbbb.*does not count")
-        self.assertEqual(self.main(hashes=("aaaaaa", "bbbbbb"), outcome="not run")[0], 1)
+    CHANGED = r"aaaaaa.*bbbbbb.*does not count"
 
-    def test_a_plugin_that_cannot_be_read_at_the_end_does_not_lose_the_table(self):
-        code, text = self.main(hashes=("aaaaaa", OSError("gone")))
-        self.assertEqual(code, 1)
-        self.assertIn("| finish | default | 2 of 2 |", text)
+    def test_a_changed_plugin_starts_no_more(self):
+        old, new = "aaaaaa", "bbbbbb"
+        row = "| finish | default | %d of 4 | %d | not run: no more runs: the plugin changed%s |"
+        for hashes, starts in (((old, new), 0), ((old, old, new), 1), ((old, old, old, old, new), 2)):
+            code, text = self.main(hashes=hashes)
+            self.assertEqual((code, len(self.starts)), (1, starts))
+            self.assertRegex(text, self.CHANGED)
+            self.assertIn(row % (starts, 4 - starts, " (%dx)" % (4 - starts)), text)
+        code, text = self.main("--jobs", "2", hashes=(old, old, old, new))
+        starts = len(self.starts)   # 1 or 2, by the thread that asked for the hash last
+        self.assertEqual((code, starts in (1, 2)), (1, True))
+        self.assertIn(row % (starts, 4 - starts, " (%dx)" % (4 - starts)), text)
+
+    def test_a_plugin_that_was_changed_and_put_back_is_remembered(self):
+        for jobs in ("1", "3"):
+            code, text = self.main("--jobs", jobs, hashes=("aaaaaa", "aaaaaa", "bbbbbb", "aaaaaa"))
+            self.assertEqual(code, 1)
+            self.assertRegex(text, self.CHANGED)
+            if jobs == "1":
+                self.assertEqual(len(self.starts), 1)
+
+    def test_a_plugin_that_changed_at_the_very_end(self):
+        code, text = self.main(hashes=("aaaaaa",) * 9 + ("bbbbbb",))
+        self.assertEqual((code, len(self.starts)), (1, 4))
+        self.assertRegex(text, self.CHANGED)
+        self.assertIn("| finish | default | 4 of 4 |", text)
+
+    def test_a_plugin_that_cannot_be_read_does_not_lose_the_table(self):
+        code, text = self.main(hashes=("aaaaaa", "aaaaaa", OSError("gone"), "aaaaaa"))
+        self.assertEqual((code, len(self.starts)), (1, 1))
+        self.assertIn("| finish | default | 1 of 4 |", text)
         self.assertIn("does not count", text)
+
+    def test_ctrl_c_while_the_plugin_is_read_keeps_the_table(self):
+        halt = run.Halt("aaaaaa")
+        answers = iter(["aaaaaa", KeyboardInterrupt()])
+        with mock.patch.object(run.version, "plugin_hash", side_effect=answers):
+            rows = run.run_all([case("finish")], 3, lambda c, n: cases.Verdict("passed"), 1, halt)
+        self.assertEqual([v.outcome for v in rows[0][1]], ["passed", "not run", "not run"])
+        self.assertIn("interrupted", rows[0][1][1].note)
+
+    def test_a_usage_limit_stays_the_reason_if_the_plugin_changes_after_it(self):
+        halt = run.Halt("aaaaaa")
+        with mock.patch.object(run.version, "plugin_hash", side_effect=["aaaaaa", "bbbbbb"]):
+            rows = run.run_all([case("finish")], 2, lambda c, n: cases.Verdict("not run", run.NO_MORE + "usage limit"),
+                               1, halt)
+        self.assertEqual({v.note for v in rows[0][1]}, {run.NO_MORE + "usage limit"})
+        self.assertEqual(halt.other, "bbbbbb")
+
+    def test_the_help_of_raw(self):
+        with mock.patch.object(sys, "stdout", io.StringIO()) as out, self.assertRaises(SystemExit):
+            run.options(["--help"])
+        self.assertIn("empty", out.getvalue())
 
     def test_number_of_jobs(self):
         self.assertEqual(run.options(["--model", "m"]).jobs, 1)

@@ -30,6 +30,7 @@ from repeat.cases import FAILED, NOT_RUN, PASSED, Run, Verdict  # noqa: E402
 
 PREFIX = "gl-repeat-"
 LIMIT = 120                  # seconds of one run
+GIT_LIMIT = 60               # seconds of a git command for a project
 MOST_JOBS = 8                # runs at once
 NO_MORE = "no more runs: "   # begins a note after which no further run makes sense
 
@@ -98,7 +99,8 @@ def make_game(case, folder, env):
     case.build(game)
     for args in (["init", "-q"], ["symbolic-ref", "HEAD", "refs/heads/stage-2"], ["add", "-A"],
                  ["commit", "-q", "-m", "Lantern Keeper"]):
-        subprocess.run(["git"] + args, cwd=game, env=env, check=True, capture_output=True, **processes.ALONE)
+        subprocess.run(["git"] + args, cwd=game, env=env, check=True, capture_output=True, timeout=GIT_LIMIT,
+                       **processes.ALONE)
     return game
 
 
@@ -243,16 +245,37 @@ def verdict(case, run):
 
 
 def _error(e):
-    return Verdict(FAILED, "%s: %s" % (type(e).__name__, e))
+    try:
+        text = str(e)
+    except Exception:
+        text = "(its text cannot be read)"
+    return Verdict(FAILED, "%s: %s" % (type(e).__name__, text))
 
 
 # --- all runs ----------------------------------------------------------------------------------------------
+
+def _plugin_now():
+    try:
+        return version.plugin_hash()
+    except OSError:
+        return "unreadable"
+
 
 class Halt:
     """Why no more runs are started. All threads look at it, so it has no lock that a signal could meet."""
 
     verdict = None        # of all runs that are not started any more
     interrupted = False   # Ctrl+C: active runs end too
+    other = None          # the hash of a plugin that is not the one of the start; stays, also if that comes back
+
+    def __init__(self, plugin=None):
+        self.plugin = plugin   # the hash at the start; None: not looked at
+
+    def look_at_plugin(self):
+        now = self.plugin and _plugin_now()
+        if now != self.plugin:
+            self.other = self.other or now
+            self.verdict = self.verdict or Verdict(NOT_RUN, NO_MORE + "the plugin changed")
 
     def interrupt(self, *_):
         self.verdict = self.verdict or _interrupted()
@@ -271,26 +294,43 @@ def _line(case, number, got, seconds=""):
     processes.say("%-8s %s%s (%s) %d  %s" % (got.outcome, seconds, case.name, case.mode, number, got.note))
 
 
-def _try(one, case, number):
+def _one(one, case, number):
     try:
         return one(case, number)
     except KeyboardInterrupt:
-        return _interrupted()
-    except (Exception, SystemExit) as e:   # one run must not lose the others
+        raise
+    except BaseException as e:   # one run must not lose the others
         got = _error(e)
         _line(case, number, got)
         return got
 
 
+def _try(one, case, number, halt):
+    """The verdict of one run, or of the halt. The plugin must be the one of the start before and after it."""
+    got = None
+    try:
+        if not halt.verdict:
+            halt.look_at_plugin()
+        if not halt.verdict:
+            got = _one(one, case, number)
+            if got.outcome == NOT_RUN and got.note.startswith(NO_MORE):
+                halt.verdict = halt.verdict or got
+            halt.look_at_plugin()
+        return got or halt.verdict
+    except KeyboardInterrupt:
+        halt.verdict = halt.verdict or _interrupted()
+        return got or _interrupted()
+
+
 def run_all(chosen, times, one, jobs=1, halt=None):
     """[(case, verdicts)], with up to so many runs at once. one(case, number) is a run, number counts from 1.
 
-    After a usage limit, a missing login, a missing model or Ctrl+C nothing more is started. The halt is the one that
-    the runs look at.
+    All runs of a row are started before those of the next one. After a usage limit, a missing login, a missing model,
+    a change of the plugin or Ctrl+C nothing more is started. The halt is the one that the runs look at.
     """
     halt = halt or Halt()
     rows = [(case, [None] * times) for case in chosen]
-    tasks = [(case, verdicts, i) for i in range(times) for case, verdicts in rows]
+    tasks = [(case, verdicts, i) for case, verdicts in rows for i in range(times)]
     waiting, lock = iter(tasks), threading.Lock()
 
     def work():
@@ -300,14 +340,17 @@ def run_all(chosen, times, one, jobs=1, halt=None):
             if task is None:
                 return
             case, verdicts, i = task
-            got = verdicts[i] = halt.verdict or _try(one, case, i + 1)
-            if got.outcome == NOT_RUN and got.note.startswith(NO_MORE):
-                halt.verdict = halt.verdict or got
+            try:
+                verdicts[i] = _try(one, case, i + 1, halt)
+            except Exception as e:   # the thread goes on, and the slot stays empty
+                processes.say("The runner itself: " + _error(e).note)
 
     if jobs == 1:
         work()
     else:
         _in_threads(work, min(jobs, len(tasks)), halt)
+    for _, verdicts in rows:
+        verdicts[:] = [v or Verdict(FAILED, "the runner lost this run") for v in verdicts]
     return rows
 
 
@@ -393,13 +436,6 @@ def said_of_itself(about, key):
     return " / ".join(sorted(str(v) for k, v in set(about) if k == key)) or "?"
 
 
-def hash_at_end():
-    try:
-        return version.plugin_hash()
-    except OSError:   # the table must not be lost
-        return "unreadable"
-
-
 def report(rows, head):
     release = [r for r in rows if not r[0].extra]
     extra = [r for r in rows if r[0].extra]
@@ -433,7 +469,7 @@ def options(argv):
     parser.add_argument("--mode", choices=cases.MODES, help="only the rows of this mode")
     parser.add_argument("--no-extra", action="store_true", help="only the cases of a release")
     parser.add_argument("--claude", help="the program; else CLAUDE_EXE, the path, or the VS Code extension")
-    parser.add_argument("--raw", help="folder to keep the raw output in")
+    parser.add_argument("--raw", help="folder to keep the raw output in. Use an empty one: else its numbers continue")
     args = parser.parse_args(argv)
     args.error = parser.error
     names = sorted({c.name for c in cases.CASES})
@@ -460,17 +496,18 @@ def main(argv=None):
         args.error(refusal(claude))
     if not chosen:
         args.error("no row fits")
-    about, halt, plugin = set(), Halt(), version.plugin_hash()
+    about, halt = set(), Halt(version.plugin_hash())
     rows = run_all(chosen, args.times,
                    lambda case, number: once(case, number, claude, args.model, args.raw, about, halt), args.jobs, halt)
     head = "guided-learning %s %s, Claude Code %s, model %s (%s), jobs %d, %s, %s" % (
-        version.VERSION, plugin, said_of_itself(about, "claude"), args.model, said_of_itself(about, "model"), args.jobs,
-        platform.system(), date.today().isoformat())
-    now = hash_at_end()
-    if now != plugin:
-        head += "\n\nThe plugin changed during the run, from %s to %s: this table does not count." % (plugin, now)
+        version.VERSION, halt.plugin, said_of_itself(about, "claude"), args.model, said_of_itself(about, "model"),
+        args.jobs, platform.system(), date.today().isoformat())
+    halt.look_at_plugin()
+    if halt.other:
+        head += "\n\nThe plugin changed during the run, from %s to %s: this table does not count." % (
+            halt.plugin, halt.other)
     print(report(rows, head))
-    return 1 if now != plugin else exit_code(rows)
+    return 1 if halt.other else exit_code(rows)
 
 
 if __name__ == "__main__":
