@@ -206,10 +206,15 @@ class BlockedTests(CaseBase):
     def test_start_in_other_words(self):
         self.blocked("start blocked, other words", "/start-phase 2", "not finished")
         self.assertEqual(project.find(self.root).words, texts.Words("app", "performance"))
+        (self.root / "src" / "Bat.cs").unlink()   # left by blocked(), which tries a damage last
         answered = self.hook("UserPromptSubmit", {"prompt": "/start-phase 2"})
         reason = json.loads(answered["stdout"])["reason"]
-        game = hook("SessionStart", {"systemMessage": "Learning hooks: on - the game"})
-        self.assert_verdict("failed", game, answered, end(reason))   # a text of the plugin says game
+        for said in ("Learning hooks: on - the game", "This is the fake project, not your game.",
+                     "No balance target.", "Balance: 1/2 targets met."):
+            text = hook("SessionStart", {"systemMessage": said})
+            self.assert_verdict("failed", text, answered, end(reason))   # a text of the plugin in the default words
+        path = hook("SessionStart", {"systemMessage": "The code folder C:/x/game/src does not exist yet."})
+        self.assert_verdict("passed", path, answered, end(reason))   # a folder named game is no word of the plugin
 
     def test_start(self):
         self.blocked("start blocked", "/start-phase 2", "phase 1 is not finished")

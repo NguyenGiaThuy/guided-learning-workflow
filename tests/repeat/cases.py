@@ -237,15 +237,19 @@ def _blocked(*wanted):
     return judge
 
 
+# The default words as the texts of the plugin use them; a folder named game (the test project's) is not one.
+_DEFAULT_WORDING = re.compile(r"\b(?:the|your|this) game\b|\bbalance targets?\b|\bBalance:", re.I)
+
+
 def _in_other_words(judge):
-    """The judge, and no text of the plugin in this run says game: the project has other words."""
+    """The judge, and no text of the plugin in this run uses the default words: the project has other words."""
     def judged(run):
         verdict = judge(run)
         if verdict.outcome != PASSED:
             return verdict
         said = [json.dumps(h) for event in ("SessionStart", "UserPromptSubmit") for h in run.hooks(event)]
-        if any(re.search(r"\bgames?\b", text, re.I) for text in said):
-            return _failed("a text of the plugin says game")
+        if any(_DEFAULT_WORDING.search(text) for text in said):
+            return _failed("a text of the plugin uses the default words")
         return Verdict(PASSED)
     return judged
 
