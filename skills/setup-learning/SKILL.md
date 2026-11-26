@@ -27,7 +27,7 @@ If CLAUDE.md has no section of guided learning, ask whether to add it, and use t
    | `suites` | list of names of the test suites. Their results must be NUnit 3 or JUnit XML, or lines `name,pass` and `name,fail`. |
    | `background` | what the owner has programmed so far. Hints are written for that. |
    | `domain` | the field of the project in the owner's words, like `web backend in Go`. Hints, examples and the questions of a phase are written for that. Suggest it from what the folder shows. |
-   | `words` | two words for the texts of the script: `project`, what the thing is called (`"game"`, `"app"`, `"model"`, `"service"`), and `targets`, the word before "targets" (`"balance"`, `"performance"`, `"quality"`). Each is one or two words of letters, digits or hyphens, at most 20 characters. Suggest them from the field. |
+   | `words` | two words for the texts of the script: `project`, what the thing is called (`"game"`, `"app"`, `"model"`, `"service"`), and `targets`, the word before "targets" (`"balance"`, `"performance"`, `"quality"`). Each is one or two words of letters, digits or hyphens, starting with a letter or digit, at most 20 characters. Suggest them from the field. |
    | `tuning` | `true` or `false`: whether a phase ends with tuning, where the owner changes numbers towards measured targets and predicts each result. Suggest `true` where the field has numbers worth tuning (balance, speed, accuracy), else `false`. |
 
    Ask also: may a short section be added to `CLAUDE.md`? It says that the AI leaves `TODO(owner)` alone, and how Superpowers is used in a phase. Offer to show it: `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-section.md`.

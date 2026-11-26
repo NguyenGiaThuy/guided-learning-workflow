@@ -41,7 +41,7 @@ Three new optional keys in `.claude/learning/project.json`:
 | `tuning` | `true` or `false` | `true` | plan check, status, scorecard, skills |
 
 - `words.project` is what the thing is called: `game`, `app`, `model`, `service`. `words.targets` is the word placed before "target" or "targets": `balance`, `performance`, `quality`. A word before "target" means the script never forms plurals of the owner's words.
-- Each word: one or two words of letters, digits or hyphens, one line, 1 to 20 characters. Texts that start a sentence with it capitalize its first letter ("Balance: 2/3 targets met").
+- Each word: one or two words of letters (of any alphabet), digits or hyphens, starting with a letter or digit, one line, 1 to 20 characters. Texts that start a sentence with it capitalize its first letter ("Balance: 2/3 targets met").
 - `words` may name only one of the two; the other keeps its default.
 - A wrong type or a word that fails the check is an error like any other wrong value of `project.json` today (hooks refuse, the message names `project.json` and the problem). `setup` refuses such input as it refuses other wrong settings. The three keys are known keys, so they are not reported as unknown.
 

@@ -40,7 +40,9 @@ _CHECKS = {"docs": _docs_folder, "code": _list_of(_code_folder), "extensions": _
            "ownerMark": _line, "suites": _list_of(_line), "background": _text}
 
 
-_WORD = re.compile(r"[A-Za-z0-9-]+( [A-Za-z0-9-]+)?")
+# A word starts with a letter or digit (any alphabet); then letters, digits or hyphens. No underscore.
+_PART = r"[^\W_](?:[^\W_]|-)*"
+_WORD = re.compile(r"%s(?: %s)?" % (_PART, _PART))
 
 
 def _word(value):

@@ -110,6 +110,13 @@ class TrendTests(Base):
         self.assertIn("(last phase: 1/1)", row(text, "Balance"))
         self.assertNotIn("last phase", row(text, "Explain") + row(text, "Process"))
 
+    def test_no_trend_against_a_phase_without_tuning(self):
+        before = self.phase({"status": "done", "log": [{"kind": "rating", "concept": "ai", "rating": "with help"}]}, n=1)
+        before["plan"]["targets"] = []
+        text = scorecard.render(self.make({1: before, 2: self.phase()}), 2)
+        self.assertIn("last phase", row(text, "Build"))
+        self.assertNotIn("last phase", row(text, "Predict") + row(text, "Balance"))
+
     def test_no_previous_phase_no_trend(self):
         self.assertNotIn("last phase", scorecard.render(self.make({2: self.phase()}), 2))
         self.assertNotIn("last phase", self.two({"status": "build"}))   # the phase before is not done

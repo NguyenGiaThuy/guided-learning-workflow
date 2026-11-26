@@ -226,6 +226,8 @@ class ValidationTests(Base):
                     {"words": {"project": "app", "player": "user"}}, {"words": {"project": ""}},
                     {"words": {"project": "a" * 21}}, {"words": {"targets": "two  spaces"}},
                     {"words": {"project": "x\ny"}}, {"words": {"project": 3}}, {"words": {"targets": " app"}},
+                    {"words": {"project": "-"}}, {"words": {"project": "--"}}, {"words": {"targets": "web -"}},
+                    {"words": {"project": "-app"}}, {"words": {"project": "my_app"}},
                     {"domain": ""}, {"domain": "x" * 101}, {"domain": "two\nlines"}, {"domain": 5}]
 
     def test_optional_keys_are_known(self):
@@ -245,7 +247,8 @@ class ValidationTests(Base):
     def test_edges_accepted(self):
         for changed in ({"words": {"project": "a" * 20}}, {"words": {"project": "web app"}},
                         {"words": {"targets": "real-time"}}, {"words": {}}, {"domain": "x" * 100},
-                        {"tuning": True}):
+                        {"words": {"project": "modèle"}}, {"words": {"project": "café app"}},
+                        {"words": {"targets": "3d"}}, {"tuning": True}):
             with self.subTest(changed=changed):
                 self.assertEqual(setup.problems(dict(PROJECT_JSON, **changed)), [])
 

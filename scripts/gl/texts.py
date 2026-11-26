@@ -844,7 +844,7 @@ _SETUP_KEYS = {
     "background": "a text about the owner's experience",
     "domain": "the field of the project in the owner's words, on one line, at most 100 characters",
     "words": ("an object with \"project\" and \"targets\", like {\"project\": \"app\", \"targets\": \"performance\"}: "
-              "each one or two words of letters, digits or hyphens, at most 20 characters"),
+              "each one or two words of letters, digits or hyphens, starting with a letter or digit, at most 20 characters"),
     "tuning": "true or false",
 }
 

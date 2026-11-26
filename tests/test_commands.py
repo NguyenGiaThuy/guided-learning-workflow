@@ -635,6 +635,19 @@ class ApproveTests(Base):
         self.assertIn(texts.gap_no_target(texts.DEFAULT_WORDS), text)
         self.assertTrue(text.endswith(texts.next_line("approve-phase", 2)))   # it is planned already
 
+    def test_a_change_keeps_the_tuning_of_the_approval(self):
+        self.make({2: {"state": {"status": "planning"}, "plan": dict(full_plan(), targets=[])}},
+                  settings={"tuning": False})
+        self.accepted("approve", "2")
+        self.assertIs(self.data()["tuning"], False)
+        helpers.write_json(self.project.root / ".claude" / "learning" / "project.json",
+                           dict(helpers.PROJECT_JSON, tuning=True))
+        self.project = project.find(self.project.root)
+        changed = dict(full_plan(), targets=[])
+        changed["questions"][0]["text"] = "Why does it rest?"
+        self.put_plan(changed)
+        self.accepted("approve", "2 change: a better question")
+
     HANDED = {"1": {"name": "Moth", "path": "src/Moth.cs", "todos": ["1.1", "1.2"]},
               "2": {"name": "Lamp", "path": "src/Lamp.cs", "todos": ["2.1"]}}
 

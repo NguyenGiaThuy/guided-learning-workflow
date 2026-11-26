@@ -182,7 +182,7 @@ def _start(project, n, rest):
         _add(carried, data.get("carried") or [])
         _leave_previous(project, n, reason, carried)
         _create_files(project, n)
-        for key in ("skip", "turn", "part", "planHash", "branch", "locked", "handed", "tasksDone", "reached", "workHash"):
+        for key in ("skip", "turn", "part", "planHash", "branch", "locked", "handed", "tasksDone", "reached", "workHash", "tuning"):
             data.pop(key, None)   # left over if the phase was skipped before
         data["status"] = "planning"
         if carried:
@@ -256,7 +256,7 @@ def _accept_change(project, n, data, reason):
         raise _refuse([texts.plan_changed(n, path.name)], here)
     if not reason:
         raise _refuse([texts.change_needs_reason(n)], here)
-    gaps = plan_gaps(project, n)
+    gaps = plan_gaps(project, n, data.get("tuning"))
     if gaps:
         raise _gap_stop(project, n, gaps, "approve-phase")
     plan = store.read(path)
@@ -292,7 +292,7 @@ def _approve(project, n, rest):
                 raise _gap_stop(project, n, gaps, "start-phase")   # planning goes on
             plan = store.read(project.plan_path(n))
             data.update(status="build", planHash=store.file_hash(project.plan_path(n)), branch=_branch(project),
-                        workHash=state.work_hash(plan))
+                        workHash=state.work_hash(plan), tuning=project.tuning)
             count = len(plan["scripts"])
             lines[:] = [texts.approved(n)] + ([texts.few_scripts_note(count)] if count < 3 else [])
         else:

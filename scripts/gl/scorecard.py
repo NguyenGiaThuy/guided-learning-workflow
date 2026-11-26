@@ -47,6 +47,8 @@ def render(project, n):
     card, before = compute(project, n), _previous(project, n)
 
     def trend(line, key, a, b):
+        if key in ("predict", "balance") and before and not (before["balance"]["total"] or before["predict"]["total"]):
+            return line   # the phase before had no tuning: nothing to compare with
         return line if before is None else "%s %s" % (line, texts.last_phase("%d/%d" % (before[key][a], before[key][b])))
 
     b, p, bal = card["build"], card["predict"], card["balance"]

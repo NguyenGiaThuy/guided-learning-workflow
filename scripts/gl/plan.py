@@ -107,15 +107,19 @@ def _target_gaps(targets, words, tuning):
     return gaps
 
 
-def plan_gaps(project, n):
-    """Everything that keeps the plan of phase n from being approved."""
+def plan_gaps(project, n, tuning=None):
+    """Everything that keeps the plan of phase n from being approved.
+
+    tuning: whether a target is needed; None means the setting of the project (a changed plan passes the value
+    stored at its approval, so switching the setting later does not change what an approved plan needs).
+    """
     plan, gaps = store.read(project.plan_path(n)), []
     concepts, parts, scripts, targets, questions = [
         _entries(plan, k, gaps) for k in ("concepts", "parts", "scripts", "targets", "questions")]
     if not concepts:
         gaps.append(texts.GAP_NO_CONCEPT)
     gaps += [texts.gap_concept_name(c.get("id")) for c in concepts if not _filled(c.get("name"))]
-    gaps += _script_gaps(project, scripts, concepts, parts) + _part_gaps(parts, scripts) + _target_gaps(targets, project.words, project.tuning)
+    gaps += _script_gaps(project, scripts, concepts, parts) + _part_gaps(parts, scripts) + _target_gaps(targets, project.words, project.tuning if tuning is None else tuning)
     asked = {str(q.get("concept")) for q in questions}
     gaps += [texts.gap_question(c.get("name") or c.get("id")) for c in concepts if str(c.get("id")) not in asked]
     gaps += [texts.gap_points(q.get("id")) for q in questions if not _filled_list(q.get("points"))]
