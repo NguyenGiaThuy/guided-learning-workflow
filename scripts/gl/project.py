@@ -68,6 +68,23 @@ class Project:
         self.problem = problem
 
     @property
+    def words(self):
+        """The words of the fixed texts: what the project is called, and the word before "targets"."""
+        given = self.settings.get("words") if isinstance(self.settings, dict) else None
+        given = given if isinstance(given, dict) else {}
+        return texts.DEFAULT_WORDS._replace(**{k: v for k, v in given.items() if k in texts.Words._fields})
+
+    @property
+    def tuning(self):
+        value = self.settings.get("tuning") if isinstance(self.settings, dict) else None
+        return value if isinstance(value, bool) else True
+
+    @property
+    def domain(self):
+        value = self.settings.get("domain") if isinstance(self.settings, dict) else None
+        return value if isinstance(value, str) else None
+
+    @property
     def active(self):
         """The project the commands work on: self, or the fake one in rehearsal/."""
         if not self.rehearsal:

@@ -1023,6 +1023,17 @@ class EndToEndTests(Base):
         self.assertIn("project.json", done.stdout.decode("utf-8"))
         self.assertIn(texts.setup_key("code", True), done.stdout.decode("utf-8"))
 
+    def test_bad_words_in_project_json_deny_edits(self):
+        self.make()
+        helpers.write_json(self.root / ".claude" / "learning" / "project.json",
+                           dict(helpers.PROJECT_JSON, words={"project": "a" * 21}))
+        base = {"cwd": str(self.root), "tool_use_id": "toolu_1", "tool_name": "Write",
+                "tool_input": {"file_path": str(self.root / "src" / "New.cs"), "content": "x"}}
+        out = json.loads(self.hook("PreToolUse", base))["hookSpecificOutput"]
+        self.assertEqual(out["permissionDecision"], "deny")
+        self.assertIn("project.json", out["permissionDecisionReason"])
+        self.assertIn('"words"', out["permissionDecisionReason"])
+
     def test_an_unknown_setting_blocks_nothing(self):
         self.make()
         helpers.write_json(self.root / ".claude" / "learning" / "project.json", dict(helpers.PROJECT_JSON, codes=["src"]))

@@ -40,14 +40,36 @@ _CHECKS = {"docs": _docs_folder, "code": _list_of(_code_folder), "extensions": _
            "ownerMark": _line, "suites": _list_of(_line), "background": _text}
 
 
+_WORD = re.compile(r"[A-Za-z0-9-]+( [A-Za-z0-9-]+)?")
+
+
+def _word(value):
+    return isinstance(value, str) and len(value) <= 20 and bool(_WORD.fullmatch(value))
+
+
+def _words(value):
+    return (isinstance(value, dict) and set(value) <= set(texts.Words._fields)
+            and all(_word(v) for v in value.values()))
+
+
+def _domain(value):
+    return _line(value) and len(value) <= 100
+
+
+# Optional settings: checked only when they are there; a missing one has its default (see Project).
+OPTIONAL = {"domain": _domain, "words": _words, "tuning": lambda v: isinstance(v, bool)}
+
+
 def wrong(settings):
     """Settings that are missing or cannot be used, as sentences."""
-    return [texts.setup_key(key, key in settings) for key, good in _CHECKS.items() if not good(settings.get(key))]
+    return ([texts.setup_key(key, key in settings) for key, good in _CHECKS.items() if not good(settings.get(key))]
+            + [texts.setup_key(key, True) for key, good in OPTIONAL.items()
+               if key in settings and not good(settings[key])])
 
 
 def unknown(settings):
     """The keys that are no setting. In the project.json of a game they are only named in the status line."""
-    return [key for key in settings if key not in _CHECKS]
+    return [key for key in settings if key not in _CHECKS and key not in OPTIONAL]
 
 
 def problems(settings):

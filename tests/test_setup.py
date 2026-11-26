@@ -222,6 +222,39 @@ class ValidationTests(Base):
         self.assertEqual(self.files()[".claude/learning/project.json"], before)
         self.assertIn('"more"', self.refused(dict(PROJECT_JSON, more=1)))   # but not in what is given
 
+    BAD_OPTIONAL = [{"tuning": "false"}, {"tuning": 1}, {"tuning": None}, {"words": "app"},
+                    {"words": {"project": "app", "player": "user"}}, {"words": {"project": ""}},
+                    {"words": {"project": "a" * 21}}, {"words": {"targets": "two  spaces"}},
+                    {"words": {"project": "x\ny"}}, {"words": {"project": 3}}, {"words": {"targets": " app"}},
+                    {"domain": ""}, {"domain": "x" * 101}, {"domain": "two\nlines"}, {"domain": 5}]
+
+    def test_optional_keys_are_known(self):
+        given = dict(PROJECT_JSON, domain="web backend in Go", words={"project": "app", "targets": "performance"},
+                     tuning=False)
+        self.assertEqual(setup.problems(given), [])
+        self.assertEqual(setup.unknown(given), [])
+
+    def test_bad_optional_values(self):
+        for changed in self.BAD_OPTIONAL:
+            with self.subTest(changed=changed):
+                key = next(iter(changed))
+                found = setup.problems(dict(PROJECT_JSON, **changed))
+                self.assertEqual(len(found), 1, found)
+                self.assertIn('"%s"' % key, found[0])
+
+    def test_edges_accepted(self):
+        for changed in ({"words": {"project": "a" * 20}}, {"words": {"project": "web app"}},
+                        {"words": {"targets": "real-time"}}, {"words": {}}, {"domain": "x" * 100},
+                        {"tuning": True}):
+            with self.subTest(changed=changed):
+                self.assertEqual(setup.problems(dict(PROJECT_JSON, **changed)), [])
+
+    def test_setup_refuses_a_string_for_tuning_and_takes_all_three(self):
+        self.assertIn('"tuning"', self.refused(dict(PROJECT_JSON, tuning="false")))
+        given = dict(PROJECT_JSON, domain="games", words={"project": "game", "targets": "balance"}, tuning=True)
+        self.apply(given)
+        self.assertEqual(store.read(self.root / ".claude" / "learning" / "project.json"), given)
+
     def test_good_values(self):
         for changed in ({"code": ["."]}, {"code": ["Assets/Scripts", "Tests/"]},
                         {"extensions": [".cs", ".blade.php", ".h++"]},

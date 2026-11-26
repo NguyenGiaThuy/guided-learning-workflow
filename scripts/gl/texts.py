@@ -1,5 +1,10 @@
 """All user-visible text of the plugin. Later tasks add their own constants here."""
 import json
+from collections import namedtuple
+
+# The words of a project (project.json "words"): what it is called, and the word before "targets".
+Words = namedtuple("Words", "project targets")
+DEFAULT_WORDS = Words("game", "balance")
 
 
 def bad_json(file, line, detail):
@@ -825,6 +830,10 @@ _SETUP_KEYS = {
     "ownerMark": "the text in the code that marks an owner test, on one line",
     "suites": "a list of names of test suites, like [\"Unit\"]",
     "background": "a text about the owner's experience",
+    "domain": "the field of the project in the owner's words, on one line, at most 100 characters",
+    "words": ("an object with \"project\" and \"targets\", like {\"project\": \"app\", \"targets\": \"performance\"}: "
+              "each one or two words of letters, digits or hyphens, at most 20 characters"),
+    "tuning": "true or false",
 }
 
 

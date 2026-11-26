@@ -30,6 +30,21 @@ class ProjectTests(unittest.TestCase):
         sub.mkdir(parents=True)
         self.assertEqual(project.find(sub).root, self.root.resolve())
 
+    def test_defaults_without_the_keys(self):
+        p = project.find(self.root)
+        self.assertEqual(p.words, texts.Words("game", "balance"))
+        self.assertEqual(p.words, texts.DEFAULT_WORDS)
+        self.assertIs(p.tuning, True)
+        self.assertIsNone(p.domain)
+
+    def test_words_and_tuning_are_read(self):
+        helpers.write_json(self.root / ".claude" / "learning" / "project.json", dict(
+            helpers.PROJECT_JSON, words={"project": "app"}, tuning=False, domain="web backend in Go"))
+        p = project.find(self.root)
+        self.assertEqual(p.words, texts.Words("app", "balance"))
+        self.assertIs(p.tuning, False)
+        self.assertEqual(p.domain, "web backend in Go")
+
     def test_settings_and_paths(self):
         p = project.find(self.root)
         self.assertEqual(p.settings["suites"], ["Unit"])
