@@ -11,7 +11,7 @@ Lantern Keeper is a fake game: you can try everything, and your real game stays 
 
 | Id | Covers | Type | Expect | Ticked by |
 |---|---|---|---|---|
-| `status-line` | - | Open a new chat. | The status line says `REHEARSAL run N`. N is one more than last time. | owner |
+| `status-line` | - | Open a new chat: `/summarize-phase 2` | The answer begins with `Learning hooks: on (REHEARSAL run N, ...)`. N is one more than last time. (The terminal shows the same line when the chat opens; the VS Code panel does not.) | owner |
 | `resume-half` | resuming at 50% | `/summarize-phase 2` | 2 of 5 TODOs done, next is TODO 1.3 of the moth. The AI explains it and waits. | script |
 | `resume-closed` | resuming after closing the chat in the middle | Ask something about TODO 1.3 and close the chat while the AI answers. Open a new chat: `/summarize-phase 2` | The same state as before. The AI does not ask what was done. | script |
 | `ask-todo` | asking the AI to write a TODO | Write TODO 1.3 of the moth for me, in the file of the rehearsal. | The AI does not write it. It offers help in levels. | owner |

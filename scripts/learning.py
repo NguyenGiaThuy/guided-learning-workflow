@@ -7,9 +7,10 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", newline="\n")
 
-from gl import commands, hooks, log, project, rehearsal, results, setup, store, texts, version  # noqa: E402
+from gl import commands, hooks, log, project, rehearsal, render, results, setup, store, texts, version  # noqa: E402
 
 SETUP_FLAG = "--claude-md"
+SESSION = "session="   # status session=<id>: the id of the chat, filled in by the skill
 
 
 class Refused(Exception):
@@ -66,10 +67,15 @@ def _status(args):
     if project.find(os.getcwd()) is None:   # no error: a failed `!` command keeps the AI from seeing the text
         return True, texts.NO_PROJECT
     outer = _outer()
-    argument = " ".join(args)
+    sessions = [a[len(SESSION):] for a in args if a.startswith(SESSION)]
+    argument = " ".join(a for a in args if not a.startswith(SESSION))
     out = rehearsal.run(outer, "summarize-phase", argument, watch=False)
     nothing_yet = not outer.active.phase_numbers() and (not argument.strip() or commands.split_argument(argument)[0])
-    return out.ok or bool(nothing_yet), out.text
+    text = out.text
+    if sessions and sessions[-1]:   # empty: the program did not fill in the id, so nothing can be told
+        line = render.one_line(outer) if outer.hooks_seen(sessions[-1]) else texts.HOOKS_NOT_SEEN
+        text = line + "\n" + text
+    return out.ok or bool(nothing_yet), text
 
 
 def _log(args):

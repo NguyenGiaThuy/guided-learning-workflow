@@ -38,7 +38,7 @@ Open a new chat. In a project without guided learning the hooks do nothing, so y
 
 ## The first phase
 
-1. Open your game in Claude Code and type `/setup-learning`. The AI asks for the settings of your game: folders, file extensions, test suites, your background. Then open a new chat. It begins with the status line `Learning hooks: on (0.1.0 ...)`. If you do not see it, the hooks do not run. See "What is not guaranteed".
+1. Open your game in Claude Code and type `/setup-learning`. The AI asks for the settings of your game: folders, file extensions, test suites, your background. Then open a new chat. In the terminal it begins with the status line `Learning hooks: on (0.1.0 ...)`. The VS Code panel does not show that line, so `/summarize-phase` and `/build-phase` begin with it too. If you do not see it, or it says `not running`, the hooks do not run. See "What is not guaranteed".
 2. Type `/start-phase 1`. You plan with the AI: the concepts you want to learn, 3 to 5 scripts you will write yourself, balance targets with numbers, and questions for the end. No code is written. Check out the branch of the phase before the next step.
 3. Read the plan (`phase-1.plan.json`), without the points of the questions. Type `/approve-phase 1`. The plan is locked. Later you can change it only by hand, with `/approve-phase 1 change: <reason>`.
 4. Type `/build-phase 1`. The AI writes the rest of the game, your scripts as shells with `TODO(owner 1.1)` comments, and tests for them that fail. At the end it hands over, and your scripts are locked against its edits. A phase may have several parts, each with its own build.
@@ -50,7 +50,7 @@ Open a new chat. In a project without guided learning the hooks do nothing, so y
 
 You can try the whole workflow on a fake game, Lantern Keeper, before you use it for yours.
 
-- Set `{"rehearsal": true}` in `.claude/learning/config.json` of your game and save. At the next prompt the commands work on a fake project in `.claude/learning/rehearsal/`. They do not touch your real game, and the status line says `REHEARSAL run 1`.
+- Set `{"rehearsal": true}` in `.claude/learning/config.json` of your game and save. At the next prompt the commands work on a fake project in `.claude/learning/rehearsal/`. They do not touch your real game, and the status line says `REHEARSAL run 1` (in the VS Code panel: the first line of `/summarize-phase`).
 - Go through [the checklist](rehearsal/checklist.md). A copy of it is in the fake project. The script ticks what it sees, you tick the rest. Branches, merges and test results are simulated.
 - A report of each run is kept in `.claude/learning/rehearsal-reports/`, and `/summarize-phase` shows how this run differs from the last one.
 - Save the file again to start over. Set it to `false` to go back to your game.
@@ -59,8 +59,9 @@ You can try the whole workflow on a fake game, Lantern Keeper, before you use it
 
 - **What stays a judgement of the AI:** how good a hint, a review or an explanation is, and that it saves your words unchanged. Planned questions with planned points narrow this as far as possible.
 - **Changes through the shell are noticed, not prevented.** The hooks refuse the edit tools. A shell command, a program or an MCP server can still change a locked file. Then you are told, and the AI is told to ask you before it does anything else. Nothing is undone. An AI that is set on it could also call the script of the plugin in ways that no hook sees.
-- **The hooks need Python and bash.** If they cannot start, Claude Code goes on without them. You notice it because the status line is missing, and `/summarize-phase` fails with a message.
-- **Not tried:** the VS Code panel, changes through an engine's MCP server, and bypass mode (`--dangerously-skip-permissions`).
+- **The hooks need Python and bash.** If they cannot start, Claude Code goes on without them. You notice it because the status line is missing, and `/summarize-phase` fails with a message or begins with `Learning hooks: not running in this chat`.
+- **The VS Code panel** does not show the messages of the hook that starts a chat. The status line is then only in `/summarize-phase` and `/build-phase`.
+- **Not tried:** changes through an engine's MCP server, and bypass mode (`--dangerously-skip-permissions`).
 - **Permission questions.** Claude Code lets a command run the script without asking only in the answer to that command. When you go on talking in the same chat, it asks for your permission in the default mode before the AI writes a record. It also asks for the git commits in `/build-phase`.
 - The points of the wrap-up questions are in the plan file, and you can read them. Do not.
 

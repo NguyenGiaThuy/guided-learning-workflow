@@ -8,7 +8,7 @@ allowed-tools: Bash(bash *run.sh* status*), Bash(bash *run.sh* log task *), Bash
 
 The status of the phase:
 
-!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" status $ARGUMENTS`
+!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" status $ARGUMENTS session=${CLAUDE_SESSION_ID}`
 
 If it says that guided learning is not set up, say that `/setup-learning` comes first, and stop. If it says that there is no phase, show that and stop.
 

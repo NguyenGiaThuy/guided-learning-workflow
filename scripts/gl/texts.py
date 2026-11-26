@@ -763,6 +763,10 @@ def closing_asked(text):
 
 # --- the status line of SessionStart --------------------------------------------------------
 
+HOOKS_NOT_SEEN = ("Learning hooks: not running in this chat. Nothing is checked or refused. Open a new chat; if "
+                  "this line stays, see \"What is not guaranteed\" in the README of the plugin.")
+
+
 def hooks_line(version, code, rehearsal, run, problem):
     inner = "REHEARSAL run %s, %s %s" % (run, version, code) if rehearsal else "%s %s" % (version, code)
     line = "Learning hooks: on (%s)" % inner

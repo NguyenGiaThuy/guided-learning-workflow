@@ -162,6 +162,32 @@ class SessionStartTests(Base):
         self.rehearse()
         self.assertIn("REHEARSAL", self.call("SessionStart")["systemMessage"])
 
+    def test_session_start_notes_the_chat(self):
+        found = self.make()
+        self.assertFalse(found.hooks_seen("chat-1"))
+        self.call("SessionStart", session_id="chat-1")
+        self.assertTrue(project.find(str(self.root)).hooks_seen("chat-1"))
+        self.assertFalse(found.hooks_seen("chat-2"))
+        self.assertFalse(found.hooks_seen(""))
+
+    def test_session_start_keeps_the_last_chats_only(self):
+        found = self.make()
+        for i in range(project.SESSIONS_KEPT + 5):
+            self.call("SessionStart", session_id="chat-%d" % i)
+        self.assertFalse(found.hooks_seen("chat-0"))
+        self.assertTrue(found.hooks_seen("chat-%d" % (project.SESSIONS_KEPT + 4)))
+        self.assertEqual(len(store.read(found.root / ".claude" / "learning" / "local" / project.SESSIONS)),
+                         project.SESSIONS_KEPT)
+
+    def test_session_start_without_an_id_or_with_a_broken_record_still_gives_the_line(self):
+        found = self.make()
+        self.assertIn("systemMessage", self.call("SessionStart"))
+        broken = found.root / ".claude" / "learning" / "local" / project.SESSIONS
+        broken.parent.mkdir(parents=True, exist_ok=True)
+        broken.write_text("{not json", encoding="utf-8")
+        self.assertIn("systemMessage", self.call("SessionStart", session_id="chat-1"))
+        self.assertTrue(found.hooks_seen("chat-1"))
+
 
 class PromptTests(Base):
     CODE = dict({"src/%s.cs" % n: shell([]) for n in ("Moth", "Lamp", "Keeper")}, **TEST_CODE)

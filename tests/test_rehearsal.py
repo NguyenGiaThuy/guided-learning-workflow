@@ -14,7 +14,7 @@ from unittest import mock
 import helpers
 from helpers import FULL_MD, full_plan, shell, suite_result
 import learning
-from gl import commands, hooks, markdown, plan, project, rehearsal, scan, scorecard, state, store, texts, version
+from gl import commands, hooks, markdown, plan, project, rehearsal, render, scan, scorecard, state, store, texts, version
 
 ROOT = Path(__file__).resolve().parent.parent
 DESIGN = (ROOT / "docs" / "design.md").read_text(encoding="utf-8")
@@ -116,6 +116,47 @@ class Base(unittest.TestCase):
         with mock.patch.object(os, "getcwd", return_value=str(self.root)), contextlib.redirect_stdout(out):
             code = learning.main(list(args))
         return code, out.getvalue()
+
+
+class HooksLineTests(Base):
+    """`status session=<id>`, as the skills insert it: the status line of SessionStart, for a panel that does not
+    show the messages of SessionStart, and only if the hook really ran in that chat."""
+
+    def status(self, *args):
+        code, out = self.cli("status", *args)
+        self.assertEqual(code, 0, out)
+        return out
+
+    def test_a_chat_the_hook_saw_begins_with_its_line(self):
+        self.on()
+        line = self.call("SessionStart")["systemMessage"]
+        out = self.status("2", "session=" + self.session)
+        self.assertEqual(out.splitlines()[0], line)
+        self.assertIn("REHEARSAL run 1", out.splitlines()[0])
+        self.assertEqual(out.split("\n", 1)[1], self.status("2"))
+
+    def test_a_chat_the_hook_did_not_see_says_so(self):
+        self.on()
+        self.call("SessionStart")
+        out = self.status("2", "session=other-chat")
+        self.assertEqual(out.splitlines()[0], texts.HOOKS_NOT_SEEN)
+        self.assertNotIn("Learning hooks: on", out)
+        self.assertEqual(out.split("\n", 1)[1], self.status("2"))
+
+    def test_the_session_may_stand_first_and_the_number_be_left_out(self):
+        self.call("SessionStart")
+        self.assertEqual(self.status("session=" + self.session, "2"), self.status("2", "session=" + self.session))
+        self.assertTrue(self.status("session=" + self.session).startswith("Learning hooks: on"))
+
+    def test_an_empty_session_adds_no_line(self):
+        self.call("SessionStart")
+        self.assertEqual(self.status("2", "session="), self.status("2"))
+
+    def test_the_real_project_line_outside_a_rehearsal(self):
+        self.call("SessionStart")
+        first = self.status("2", "session=" + self.session).splitlines()[0]
+        self.assertEqual(first, render.one_line(self.found()))
+        self.assertNotIn("REHEARSAL", first)
 
 
 class TemplateTests(Base):

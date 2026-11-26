@@ -157,7 +157,7 @@ Next: commit, merge the branch, then open a new chat and type /start-phase 3
 
 | Behavior | Mechanism |
 |---|---|
-| A new chat knows the state | `SessionStart` hook prints one status line |
+| A new chat knows the state | `SessionStart` hook prints one status line. `/summarize-phase` and `/build-phase` begin with it too, if the hook ran in that chat, because the VS Code panel does not show the hook's message |
 | Commands are checked before the AI sees them | `UserPromptSubmit` hook: blocks, or does the writing itself |
 | Owner code is not changed by AI | `PreToolUse` hook refuses Edit, Write and NotebookEdit on locked owner scripts, and any edit that removes a `TODO(owner)`. Before `/approve-phase` it refuses all edits in the code folders, so no code comes before the plan. After that and before `/build-phase` too. Also in subagents. |
 | Changes by another route are noticed | `PostToolUse` hook compares owner scripts and workflow files before and after a tool call, tells the owner, and stops the agent |
@@ -252,7 +252,7 @@ Before every later release, steps 1 to 3 are repeated. Releases are git tags wit
 
 **Already tried** on 2026-11-25, in throwaway projects with Claude Code 2.1.331 in print mode on Windows, with a small model and mostly once: the status text at session start, the inserted status (same line in 5 of 5 runs), blocking `/start-phase`, refusing edits in acceptEdits and auto mode and in a subagent, noticing a change through the shell, refusing an AI that starts `/finish-phase`, and sending back an answer without the closing text. As a plugin: the status, blocking, refusal, and the short command name. `!` commands need `allowed-tools`.
 
-**Not tried:** the VS Code panel, changes through an engine's MCP, bypass mode, macOS and Linux.
+**Not tried:** changes through an engine's MCP, bypass mode, macOS and Linux.
 
 ## Publishing
 

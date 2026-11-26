@@ -8,7 +8,7 @@ allowed-tools: Bash(bash *run.sh* status*), Bash(bash *run.sh* log *), Bash(bash
 
 The status of the phase, worked out from the project:
 
-!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" status $ARGUMENTS`
+!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" status $ARGUMENTS session=${CLAUDE_SESSION_ID}`
 
 Show it first, unchanged. Do not work it out again. Then do what fits it, and only that. End every answer with the next step.
 

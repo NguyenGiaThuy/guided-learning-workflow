@@ -11,7 +11,7 @@ from gl import hooks, log, texts
 ROOT = Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "skills"
 WITH_STATUS = ("build-phase", "summarize-phase")
-STATUS_LINE = '!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" status $ARGUMENTS`'
+STATUS_LINE = '!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" status $ARGUMENTS session=${CLAUDE_SESSION_ID}`'
 RUN = 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" '
 FREE_TEXT = ("change", "text")   # fields with the owner's words
 

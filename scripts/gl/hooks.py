@@ -470,6 +470,10 @@ def _report_lost_project(event, data, cwd):
 
 def _session_start(found, data, cwd):
     line = render.one_line(found)
+    try:   # for `status session=<id>`: a panel that does not show this message still gets the line from there
+        found.note_session(data.get("session_id"))
+    except Exception:   # the line matters more than the record
+        pass
     context = line + "\n" + rehearsal.rules(found) if found.rehearsal else line
     return {"systemMessage": line,
             "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}}

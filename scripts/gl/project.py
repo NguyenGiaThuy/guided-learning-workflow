@@ -7,6 +7,8 @@ from . import store, texts
 
 LEARNING = Path(".claude") / "learning"
 OPEN = "open.json"
+SESSIONS = "sessions.json"   # ids of the chats in which SessionStart ran
+SESSIONS_KEPT = 50
 
 
 class BadSettings(store.BadJson):
@@ -135,6 +137,25 @@ class Project:
     def update_local(self, name, fn, after=None, tolerant=False):
         """Every read-modify-write of a file in local/, which holds no phase."""
         return store.update(self.root / LEARNING / "local" / name, fn, after=after, tolerant=tolerant)
+
+    def note_session(self, session):
+        """SessionStart ran in this chat: keep its id, with the last SESSIONS_KEPT others."""
+        if not session:
+            return
+
+        def apply(seen):
+            seen = {k: v for k, v in (seen if isinstance(seen, dict) else {}).items() if k != session}
+            seen[session] = store.now()
+            return dict(sorted(seen.items(), key=lambda kv: str(kv[1]))[-SESSIONS_KEPT:])
+        self.update_local(SESSIONS, apply, tolerant=True)
+
+    def hooks_seen(self, session):
+        """True if SessionStart ran in the chat of this id."""
+        try:
+            seen = store.read(self.root / LEARNING / "local" / SESSIONS)
+        except (store.BadJson, OSError):
+            return False
+        return bool(session) and isinstance(seen, dict) and session in seen
 
     def _noted_phases(self):
         """{number: entry} of open.json: {"branch", "locked", "built"} of an open phase and

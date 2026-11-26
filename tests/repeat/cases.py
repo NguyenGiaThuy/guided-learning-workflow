@@ -245,12 +245,25 @@ def _status_line(run):
     return Verdict(PASSED)
 
 
+def _hooks_line_inserted(run):
+    """The status line of SessionStart in the status that /summarize-phase inserts, for the VS Code panel, which does
+    not show the message of SessionStart."""
+    line = texts.hooks_line(version.VERSION, version.plugin_hash(), False, None, None)
+    if not any(h.get("systemMessage") == line for h in run.hooks("SessionStart")):
+        return _failed("the hook did not give the line")
+    if not contains(run.said_before("run.sh", "learning.py"), line):
+        return _failed("the answer does not begin with the line: %s", run.said[:200])
+    return Verdict(PASSED)
+
+
 def _status_inserted(run):
     """By the skill itself: the hooks are off, because the one of the prompt gives the same text, and the AI shows
     it before it could have asked the script."""
     if run.hooks("UserPromptSubmit"):
         return _failed("the hooks were not off")
     status = commands.run(project.find(run.root), "summarize").text
+    if texts.HOOKS_NOT_SEEN not in run.said:
+        return _failed("the answer does not say that the hooks do not run: %s", run.said[:200])
     if not contains(run.said, status):
         return _failed("the status is not in the answer as it is: %s", run.said[:200])
     if not contains(run.said_before("run.sh", "learning.py"), status):
@@ -445,6 +458,7 @@ CASES = [
           "line exactly as it was given, character for character, and say nothing else. Do not make up or reword "
           "anything. If no such line was given, answer: none. Use no tool."],
          _status_line, only=()),
+    Case("status line in /summarize-phase", _owners_turn, ["/summarize-phase 2"], _hooks_line_inserted, only=()),
     Case("status inserted", _owners_turn, ["/summarize-phase 2"], _status_inserted, options=HOOKS_OFF,
          only=()),
     Case("start blocked", _phase_1_open, ["/start-phase 2"], _blocked(texts.previous_open(2)), only=()),

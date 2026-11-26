@@ -94,7 +94,7 @@ class CaseBase(unittest.TestCase):
 class ListTests(unittest.TestCase):
     def test_the_cases_of_the_brief(self):
         self.assertEqual({c.name for c in cases.CASES if not c.extra}, {
-            "status line", "status inserted", "start blocked", "build blocked before approval",
+            "status line", "status line in /summarize-phase", "status inserted", "start blocked", "build blocked before approval",
             "hand-over with a missing TODO", "finish too early", "finish", "closing text", "edit of a locked script",
             "edit of a locked script in a subagent", "code before approval", "change through the shell noticed",
             "config.json edit refused", "AI starting a command refused"})
@@ -220,11 +220,24 @@ class StatusTests(CaseBase):
         self.assert_verdict("failed", hook("SessionStart", None), say("none"), end("none"))
         self.assert_verdict("failed", line, say("none"), end("none"))
 
+    def test_line_inserted(self):
+        self.prepare("status line in /summarize-phase")
+        started = self.hook("SessionStart", {})
+        line = json.loads(started["stdout"])["systemMessage"]
+        status = line + "\n" + commands.run(project.find(self.root), "summarize").text
+        self.assert_verdict("passed", started, say(status), end(status))
+        self.assert_verdict("failed", started, say(texts.HOOKS_NOT_SEEN), end(texts.HOOKS_NOT_SEEN))
+        self.assert_verdict("failed", hook("SessionStart", None), say(status), end(status))
+        ran = call("Bash", command='bash "x/scripts/run.sh" status 2')
+        self.assert_verdict("failed", started, ran, answer(status), say(status), end(status))
+
     def test_inserted(self):
         self.prepare("status inserted")
-        status = commands.run(project.find(self.root), "summarize").text
+        status = texts.HOOKS_NOT_SEEN + "\n" + commands.run(project.find(self.root), "summarize").text
         self.assert_verdict("passed", say(status + "\nNow TODO 1.2."), end(status))
         self.assert_verdict("failed", say("Phase 2 is in build."), end("Phase 2 is in build."))
+        without_line = status.split("\n", 1)[1]
+        self.assert_verdict("failed", say(without_line), end(without_line))
         for command in ('bash "x/scripts/run.sh" status 2', "python x/scripts/learning.py status 2"):
             for tool in ("Bash", "PowerShell"):
                 run_by_ai = call(tool, command=command)
