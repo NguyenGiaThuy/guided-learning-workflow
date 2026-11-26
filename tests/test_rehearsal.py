@@ -855,6 +855,14 @@ class ChecklistTests(unittest.TestCase):
             self.assertIn(c.by, ("script", "owner"))
             self.assertTrue(c.type and c.expect, c.id)
 
+    def test_setup_is_checked_by_the_owner(self):
+        line = [c for c in rehearsal.checklist() if c.id == "setup"]
+        self.assertEqual(len(line), 1)
+        self.assertEqual(line[0].by, "owner")
+        self.assertIn("/setup-learning", line[0].type)
+        for key in ("`domain`", "`words`", "`tuning`"):
+            self.assertIn(key, line[0].expect)
+
     def test_the_build_stops_by_itself_for_a_question(self):
         """Closing the chat in the middle must not depend on how fast the owner is."""
         self.assertNotIn("Esc", (ROOT / "rehearsal" / "checklist.md").read_text(encoding="utf-8"))
