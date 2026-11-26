@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0 (unreleased)
+
+- `/setup-learning` asks for the field of the project (`domain`), two words for the texts (`words`) and whether phases have tuning (`tuning`). Every fixed text uses the project's words.
+- With `"tuning": false` a phase needs no targets and goes from the build straight to the wrap-up.
+
 ## 0.1.0 (unreleased)
 
 First version.

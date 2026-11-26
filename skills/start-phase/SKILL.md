@@ -11,13 +11,13 @@ If there is no such text, guided learning is not set up here, or its hooks do no
 
 If the text says "Planning would start here", this is a rehearsal: show the text and stop. Plan nothing.
 
-Plan the phase with the owner. Write only `phase-N.plan.json` and `phase-N.md`, in the folder the hook names, and, with Superpowers, its design and plan documents, outside of the code folders. Write no code. Do not edit `phase-N.json`.
+Plan the phase with the owner. Write only `phase-N.plan.json` and `phase-N.md`, in the folder the hook names, and, with Superpowers, its design and plan documents, outside of the code folders. Write no code. Do not edit `phase-N.json`. Talk to the owner in the terms of the field: read `domain` and `words` of `.claude/learning/project.json`, and use them for examples, hints and names.
 
 Read the plan and `phase-N.md` first: the planning may have begun in another chat. Keep what is there, and go on with the first block that is missing.
 
 ## Talk first
 
-- Read the design of the game, *Notes for later* of the phases before, and the carried items. Give each carried item a place in this phase, or agree to drop it.
+- Read the design of the project, *Notes for later* of the phases before, and the carried items. Give each carried item a place in this phase, or agree to drop it.
 - Ask what the phase should do and which concepts the owner wants to learn. Agree on each block of the plan before the next one. Save each block as soon as it is agreed.
 - Propose a branch for the phase, in the project folder and without a worktree. The owner creates it or agrees that you do. It must be checked out before the approval.
 
@@ -38,7 +38,7 @@ Read the plan and `phase-N.md` first: the planning may have begun in another cha
 - **concepts**: what the phase teaches.
 - **scripts**: 3 to 5, the core script of each concept. The owner writes these. Each has a path, a concept, TODO numbers `<script id>.<step>` as text, and the names of its tests.
 - **parts**: AI work, then the owner scripts it prepares. Each part has at least one task, and each script is in exactly one part. A part is as much as the AI builds in one go. The last part may have no scripts.
-- **targets**: balance targets, at least one. Each has a measure, the settings that influence it, and `min` or `max` or both, as numbers. Set them now, not after seeing a result.
+- **targets**: only when `tuning` in `project.json` is not false; then at least one, named with the word `targets` of `words` (default: balance targets). Each has a measure, the settings that influence it, and `min` or `max` or both, as numbers. Set them now, not after seeing a result.
 - **questions**: at least one per concept, for the wrap-up. Each has points that an answer must contain. Agree on the questions. Write the points without showing them: the owner should not read them before the wrap-up.
 
 Put decisions, surprises and open questions under *Notes for later* in `phase-N.md`.

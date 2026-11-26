@@ -20,7 +20,7 @@ Begin your answer with it, before you use any tool: in a code block, unchanged, 
 - **Done**: offer to go over any concept again.
 - **Otherwise**: go on with the first open step: build, tune, wrap-up. One chat is for one owner script, for the tuning or for the wrap-up. When that is complete, stop: ask the owner to open a new chat and type `/summarize-phase N`.
 
-Read the whole `phase-N.md` and `phase-N.plan.json` first. Both are in the folder `docs` of `.claude/learning/project.json`. The code and the git history tell the rest, other chats do not. Save everything as soon as it happens: the chat may be closed at any time. Do not edit `phase-N.json` or the plan. Before the chat ends, add decisions, surprises and what went wrong to *Notes for later* in `phase-N.md`. Notes go there and not into `log note`, which is shown nowhere.
+Read the whole `phase-N.md` and `phase-N.plan.json` first. Both are in the folder `docs` of `.claude/learning/project.json`. The code and the git history tell the rest, other chats do not. Save everything as soon as it happens: the chat may be closed at any time. Do not edit `phase-N.json` or the plan. Before the chat ends, add decisions, surprises and what went wrong to *Notes for later* in `phase-N.md`. Notes go there and not into `log note`, which is shown nowhere. Talk to the owner in the terms of the field: read `domain` and `words` of `.claude/learning/project.json`, and use them for examples, hints and names.
 
 Records go through `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh"`, followed by the calls below. Add `phase=N` to each. The owner's words never stand in the command itself: the shell would change them. Write `-` for that field and give the text as shown, with `'END'` in quotes.
 
@@ -33,6 +33,8 @@ Records go through `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh"`, followed by th
 - When a test passes, the owner removes its owner mark. When the script is done, offer to commit it.
 
 ## Tune: the owner changes the numbers
+
+If the plan has no targets, there is no tuning: go from the build to the wrap-up.
 
 - Before the first tweak: Run and record every whole suite, as in the build. A tweak in a code file makes the results old, so do it again after the last one. Old results during tuning are run again before `/finish-phase`, and a failing owner test sends the phase back to build.
 - Say which setting influences which target. Never say or change a value.
@@ -64,6 +66,6 @@ The owner's answers come first, so say nothing about a concept before them. If t
 1. Ask the planned questions, one by one. Save each answer at once under `### <question id>` in *Answers*, in the owner's words, unchanged. Do not correct them. Do not show the points.
 2. Name which points are missing, without giving the answer, and ask again. Add the new answer below the first one, after a line `After a hint:`.
 3. Rate each concept by the points: `on my own` (all without a hint), `with help` (all after hints), `can't yet`. Record it: `log rating concept=<id> rating="<rating>"`. A concept at `can't yet` is gone over and asked again.
-4. Write the *Concept summary*, one `### <concept name>` for each: the idea and its usual name, how this game does it, what it resembles in the owner's background, the alternative not chosen, something that went wrong here.
+4. Write the *Concept summary*, one `### <concept name>` for each: the idea and its usual name, how this project does it, what it resembles in the owner's background, the alternative not chosen, something that went wrong here.
 5. Ask for 3 to 5 *Lessons*, at least one about the process and one thing to do differently. Save them as list items in the owner's words. Ask for the two sentences of *Process*: `Surprised me:` and `Differently:`.
 6. Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" status N`. It shows the scorecard, or what is still open. Show it. Old results or tests not run: run and record every whole suite first. If nothing is open, remind the owner to commit their code and the wrap-up, or offer to do it. Then ask the owner to type `/finish-phase N`. It changes the two phase files: say that they are to be committed after `/finish-phase N` and before the merge.

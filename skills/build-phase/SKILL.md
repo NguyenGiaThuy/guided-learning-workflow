@@ -16,13 +16,13 @@ A hook has already checked that it is the AI's turn. Its text is in your context
 
 If the text says REHEARSAL, its rules come first: the other folder, no git, and simulated tests in place of real ones. Run `rehearse fail` or `rehearse pass` only when the owner says so; if results are missing, ask.
 
-Do the open tasks of this part only. Read `phase-N.plan.json` and *Notes for later* in `phase-N.md` first. Both are in the folder `docs` of `.claude/learning/project.json`, like the owner mark and the owner's background.
+Do the open tasks of this part only. Read `phase-N.plan.json` and *Notes for later* in `phase-N.md` first. Both are in the folder `docs` of `.claude/learning/project.json`, like the owner mark and the owner's background. Talk to the owner in the terms of the field: read `domain` and `words` of `.claude/learning/project.json`, and use them for examples, hints and names.
 
 ## The owner scripts
 
 - Write each one as a shell: fields, signatures, and the planned TODOs in their file, each as a comment `TODO(owner S.T)` in the style of the language, like `// TODO(owner 1.2)`. Use exactly the numbers of the plan.
 - The shell compiles and does nothing harmful.
-- A TODO says what must be true, not each line. Add pseudo code and hints. Explain the engine and game ideas, at the level of the owner's background.
+- A TODO says what must be true, not each line. Add pseudo code and hints. Explain the ideas of the field and its tools, at the level of the owner's background.
 - Never write the code behind a TODO, also not in another file, a test, a commit or the chat.
 
 ## The tests

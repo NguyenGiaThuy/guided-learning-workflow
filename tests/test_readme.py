@@ -54,3 +54,15 @@ class ReadmeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FieldTests(unittest.TestCase):
+    def test_readme_documents_the_three_settings(self):
+        text = read("README.md")
+        self.assertIn("## Other fields than games", text)
+        for key in ("`domain`", "`words`", "`tuning`"):
+            self.assertIn(key, text)
+
+    def test_version_0_2_0(self):
+        self.assertEqual(json.loads(read(".claude-plugin/plugin.json"))["version"], "0.2.0")
+        self.assertIn("## 0.2.0 (unreleased)", read("CHANGELOG.md"))

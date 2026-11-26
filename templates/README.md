@@ -1,6 +1,6 @@
 # Guided learning
 
-This folder holds the records of guided learning. You build the game in phases: the AI does the surrounding work, you write the key scripts and do the tuning. Each phase ends with a concept summary, lessons and a scorecard.
+This folder holds the records of guided learning. You build the project in phases: the AI does the surrounding work, you write the key scripts and, if the project has targets, do the tuning. Each phase ends with a concept summary, lessons and a scorecard.
 
 ## Commands
 
@@ -22,7 +22,7 @@ You type them in Claude Code. Every status ends with the next one, so you need n
 | `phase-N.plan.json` | Concepts, owner scripts, targets, questions and points. Do not read the points before the wrap-up. | the AI with you while planning, then locked | yes |
 | `phase-N.json` | Status, branch, locks, log, ratings, test results | only the script | yes |
 | `phase-N.md` | Notes for later, answers, concept summary, lessons | you and the AI | yes |
-| `.claude/learning/project.json` | Settings of this game | you, by hand | yes |
+| `.claude/learning/project.json` | Settings of this project, with its field, its words and the tuning switch | you, by hand | yes |
 | `.claude/learning/config.json` | `{"rehearsal": false}`: the switch of the rehearsal | you, by hand | no |
 | `.claude/learning/local/`, `rehearsal/`, `rehearsal-reports/` | State of this machine, rehearsal | only the script | no |
 

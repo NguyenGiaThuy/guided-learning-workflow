@@ -6,7 +6,7 @@ You build the game in phases. In each phase the AI does the surrounding work, an
 
 The plugin does not rely on the AI following written rules. A script keeps the state in files of your game, and hooks check your commands and refuse edits. So it works the same way every time, and no step depends on one chat.
 
-Version 0.1.0 is not released yet. See [CHANGELOG.md](CHANGELOG.md) and [the design](docs/design.md).
+Version 0.2.0 is not released yet. See [CHANGELOG.md](CHANGELOG.md) and [the design](docs/design.md).
 
 ## Commands
 
@@ -39,12 +39,22 @@ Open a new chat. In a project without guided learning the hooks do nothing, so y
 ## The first phase
 
 1. Open your game in Claude Code and type `/setup-learning`. The AI asks for the settings of your game: folders, file extensions, test suites, your background. Then open a new chat. In the terminal it begins with the status line `Learning hooks: on (0.1.0 ...)`. The VS Code panel does not show that line, so `/summarize-phase` and `/build-phase` begin with it too. If you do not see it, or it says `not running`, the hooks do not run. See "What is not guaranteed".
-2. Type `/start-phase 1`. You plan with the AI: the concepts you want to learn, 3 to 5 scripts you will write yourself, balance targets with numbers, and questions for the end. No code is written. Check out the branch of the phase before the next step.
+2. Type `/start-phase 1`. You plan with the AI: the concepts you want to learn, 3 to 5 scripts you will write yourself, targets with numbers (if tuning is on), and questions for the end. No code is written. Check out the branch of the phase before the next step.
 3. Read the plan (`phase-1.plan.json`), without the points of the questions. Type `/approve-phase 1`. The plan is locked. Later you can change it only by hand, with `/approve-phase 1 change: <reason>`.
 4. Type `/build-phase 1`. The AI writes the rest of the game, your scripts as shells with `TODO(owner 1.1)` comments, and tests for them that fail. At the end it hands over, and your scripts are locked against its edits. A phase may have several parts, each with its own build.
 5. Open a new chat and type `/summarize-phase 1`. You see what is done and what is next. Write your code in the editor. Ask for help when you want it, in four levels: a question, a pointer, more pseudo code, the solution in the chat. Remove the owner mark of a test when it passes. Close the chat whenever you like: the same command goes on from there.
-6. When your scripts are done, `/summarize-phase 1` goes on with the tuning. You change the numbers and say before each run what you expect. Then comes the wrap-up: you answer the questions in your own words, the AI names what is missing, and you write the lessons.
+6. When your scripts are done, `/summarize-phase 1` goes on with the tuning, if the phase has targets. You change the numbers and say before each run what you expect. Then comes the wrap-up: you answer the questions in your own words, the AI names what is missing, and you write the lessons.
 7. Type `/finish-phase 1`. It lists what is open, or closes the phase and shows the closing text. Closing changes the two phase files (`phase-1.json` and `phase-1.md`), so commit them now. Merge the branch, open a new chat and type `/start-phase 2`.
+
+## Other fields than games
+
+The workflow works for any code with tests. `/setup-learning` asks for three more settings, with a suggestion for each:
+
+- `domain`: your field in your own words, like `web backend in Go`. The AI writes hints, examples and questions for it.
+- `words`: two words that the texts of the script use: what the project is called (`"game"`, `"app"`, `"service"`) and the word before "targets" (`"balance"`, `"performance"`, `"quality"`). Each is one or two words, at most 20 characters.
+- `tuning`: `false` if your field has no numbers worth tuning. A phase then needs no targets and goes from your scripts straight to the wrap-up.
+
+A project without them keeps `game`, `balance` and tuning. You can add them to `.claude/learning/project.json` by hand at any time.
 
 ## Rehearsal
 

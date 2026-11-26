@@ -1,6 +1,6 @@
 {
   "name": "guided-learning",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Learn how games are made by building one with an AI: it does the surrounding work, you write the key scripts, and every phase ends with what you learned.",
   "author": {
     "name": "guided-learning-workflow contributors"

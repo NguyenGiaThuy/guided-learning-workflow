@@ -241,3 +241,33 @@ class SetupPromptTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FieldTests(unittest.TestCase):
+    """The field of the project, its words and the tuning switch, in what the AI reads."""
+
+    def test_setup_asks_for_the_new_settings(self):
+        text = read("setup-learning")
+        for key in ("domain", "words", "tuning"):
+            self.assertRegex(text, r"(?m)^   \| `%s` \|" % key)
+        example = json.loads(re.search(r"```json\n(.*?)```", text, re.S).group(1))
+        self.assertEqual(set(example) & {"domain", "words", "tuning"}, {"domain", "words", "tuning"})
+
+    def test_skills_say_project_not_game(self):
+        places = [SKILLS / d / "SKILL.md" for d in sorted(p.name for p in SKILLS.iterdir())]
+        places += [ROOT / "templates" / "README.md", ROOT / "templates" / "claude-md-section.md"]
+        for path in places:
+            for line in path.read_bytes().decode("utf-8").splitlines():
+                if re.search(r"\bgames?\b", line, re.I) and '"game"' not in line:
+                    self.fail("%s: %s" % (path.name, line))
+
+    def test_start_phase_targets_follow_tuning(self):
+        self.assertIn("only when `tuning` in `project.json` is not false", read("start-phase"))
+
+    def test_summarize_skips_tuning_without_targets(self):
+        self.assertIn("If the plan has no targets, there is no tuning: go from the build to the wrap-up.",
+                      read("summarize-phase"))
+
+    def test_skills_use_the_words_of_the_project(self):
+        for name in ("start-phase", "build-phase", "summarize-phase"):
+            self.assertIn("`domain` and `words` of `.claude/learning/project.json`", read(name), name)

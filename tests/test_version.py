@@ -40,7 +40,7 @@ class HashTests(unittest.TestCase):
         self.assertNotEqual(before, version.plugin_hash(self.tmp))
 
     def test_version_read_from_plugin_json(self):
-        self.assertEqual(version.VERSION, "0.1.0")
+        self.assertEqual(version.VERSION, "0.2.0")
 
 
 class RunShTests(unittest.TestCase):
@@ -51,7 +51,7 @@ class RunShTests(unittest.TestCase):
             capture_output=True, text=True, encoding="utf-8", timeout=60,
         )
         self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertRegex(out.stdout.strip(), r"^0\.1\.0 [0-9a-f]{6}$")
+        self.assertRegex(out.stdout.strip(), r"^0\.2\.0 [0-9a-f]{6}$")
 
     def run_sh(self, **stubs):
         """run.sh version with stubs for python and python3, which are first in the path."""
@@ -76,7 +76,7 @@ class RunShTests(unittest.TestCase):
                             ({"python": self.REAL, "python3": self.OLD}, "real")):
             out = self.run_sh(**stubs)
             self.assertEqual(out.returncode, 0, out)
-            self.assertRegex(out.stdout.strip(), r"^0\.1\.0 [0-9a-f]{6}$")
+            self.assertRegex(out.stdout.strip(), r"^0\.2\.0 [0-9a-f]{6}$")
             self.assertIn(real, out.stderr)
 
     @unittest.skipUnless(shutil.which("bash"), "bash not available")

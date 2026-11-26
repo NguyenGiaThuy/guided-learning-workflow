@@ -32,7 +32,7 @@ A phase is whatever the game calls a stage or milestone.
 Before any code of the phase, the plan file gets, and the owner approves:
 - **Concepts** the phase teaches.
 - **Owner scripts:** ✓ the core script of each concept, 3 to 5 in all. For each: path, concept, TODO numbers, names of its tests.
-- **Balance targets:** ✓ each with a number or range, how it is measured, and the settings that influence it.
+- **Balance targets:** ✓ each with a number or range, how it is measured, and the settings that influence it. With `"tuning": false` in `project.json` a phase needs none; then it has no tuning, and the status and scorecard leave the tune step and the lines of balance and prediction out. Targets that a plan has anyway work as always.
 - **Wrap-up questions,** at least one per concept, with the points an answer must contain.
 
 ### 2. Build
@@ -72,7 +72,7 @@ All are typed by the owner and are `disable-model-invocation`, so the AI cannot 
 
 | Command | What it does |
 |---|---|
-| `/setup-learning` | Asks for the settings of the game, writes `project.json` and the other files below |
+| `/setup-learning` | Asks for the settings of the project, including its field, its words and the tuning switch, writes `project.json` and the other files below |
 | `/start-phase N` | Checks that phase N-1 is done or skipped. Blocks otherwise and lists what is open. `/start-phase N skip: <reason>` records the skip and carries open items over. Then planning starts. Phase 1 has no check. |
 | `/approve-phase N` | Checks that the plan is complete, and locks it. Status becomes `build`. Nothing is built yet. |
 | `/build-phase [N]` | The AI starts or resumes its work: shells, tests, and everything else that is not the owner's. Blocked before approval, and while it is the owner's turn. |
@@ -191,7 +191,7 @@ In a game, written by `/setup-learning`:
 
 | File | Content | In git |
 |---|---|---|
-| `.claude/learning/project.json` | code folders, file extensions, TODO and test marks, suites and their result format, folder for phase files, the owner's background | yes |
+| `.claude/learning/project.json` | code folders, file extensions, TODO and test marks, suites and their result format, folder for phase files, the owner's background; optional: `domain` (the field, for the AI), `words` (`{"project": "game", "targets": "balance"}` by default, used by every fixed text), `tuning` (`true` by default) | yes |
 | `.claude/learning/config.json` | `{ "rehearsal": false }` | no |
 | `.claude/learning/local/`, `rehearsal/`, `rehearsal-reports/` | state of this machine, rehearsal | no |
 | `<docs>/learning/phase-N.plan.json` | concepts, owner scripts, targets, questions and points. Locked after approval, with its hash | yes |

@@ -1,7 +1,7 @@
 <!-- guided-learning:start -->
 ## Guided learning
 
-The owner learns by writing the key scripts of this game. The guided-learning plugin keeps the state. The owner types its commands; you never start them.
+The owner learns by writing the key scripts of this project. The guided-learning plugin keeps the state. The owner types its commands; you never start them.
 
 - Leave `TODO(owner S.T)` alone. The owner replaces it with their own code. Do not fill it in, remove it or move it, also not by a shell command or a subagent.
 - Help with owner code only at the level the owner asks for. A review names the problem or asks a question. It does not rewrite.
