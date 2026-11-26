@@ -94,7 +94,8 @@ class CaseBase(unittest.TestCase):
 class ListTests(unittest.TestCase):
     def test_the_cases_of_the_brief(self):
         self.assertEqual({c.name for c in cases.CASES if not c.extra}, {
-            "status line", "status line in /summarize-phase", "status inserted", "start blocked", "build blocked before approval",
+            "status line", "status line in /summarize-phase",
+            "status line in /summarize-phase, in a rehearsal", "status inserted", "start blocked", "build blocked before approval",
             "hand-over with a missing TODO", "finish too early", "finish", "closing text", "edit of a locked script",
             "edit of a locked script in a subagent", "code before approval", "change through the shell noticed",
             "config.json edit refused", "AI starting a command refused"})
@@ -230,6 +231,16 @@ class StatusTests(CaseBase):
         self.assert_verdict("failed", hook("SessionStart", None), say(status), end(status))
         ran = call("Bash", command='bash "x/scripts/run.sh" status 2')
         self.assert_verdict("failed", started, ran, answer(status), say(status), end(status))
+
+    def test_line_inserted_in_a_rehearsal(self):
+        self.prepare("status line in /summarize-phase, in a rehearsal")
+        started = self.hook("SessionStart", {})
+        line = json.loads(started["stdout"])["systemMessage"]
+        self.assertIn("REHEARSAL run", line)
+        shown = line + "\nPhase 2 - build"
+        self.assert_verdict("passed", started, say(shown), end(shown))
+        self.assert_verdict("failed", started, say("Phase 2 - build"), end("Phase 2 - build"))
+        self.assert_verdict("failed", hook("SessionStart", None), say(shown), end(shown))
 
     def test_inserted(self):
         self.prepare("status inserted")

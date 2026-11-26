@@ -10,7 +10,7 @@ The status of the phase, worked out from the project:
 
 !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" status $ARGUMENTS session=${CLAUDE_SESSION_ID}`
 
-Show it first, unchanged. Do not work it out again. Then do what fits it, and only that. End every answer with the next step.
+Show it first, unchanged, from the line `Learning hooks:` to the end (all of it if there is no such line). Do not work it out again. Then do what fits it, and only that. End every answer with the next step.
 
 - **REHEARSAL**: its rules come first: the other folder, no git, and simulated tests in place of real ones. Run `rehearse` only when the owner says so; if results are missing or old, ask the owner. Otherwise do the same as always.
 - **Not set up**: say that `/setup-learning` comes first, and stop. **No phase**: name the command it names, and stop.

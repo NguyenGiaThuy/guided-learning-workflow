@@ -69,13 +69,12 @@ def _status(args):
     outer = _outer()
     sessions = [a[len(SESSION):] for a in args if a.startswith(SESSION)]
     argument = " ".join(a for a in args if not a.startswith(SESSION))
-    out = rehearsal.run(outer, "summarize-phase", argument, watch=False)
-    nothing_yet = not outer.active.phase_numbers() and (not argument.strip() or commands.split_argument(argument)[0])
-    text = out.text
+    line = None
     if sessions and sessions[-1]:   # empty: the program did not fill in the id, so nothing can be told
         line = render.one_line(outer) if outer.hooks_seen(sessions[-1]) else texts.HOOKS_NOT_SEEN
-        text = line + "\n" + text
-    return out.ok or bool(nothing_yet), text
+    out = rehearsal.run(outer, "summarize-phase", argument, watch=False, above=line)
+    nothing_yet = not outer.active.phase_numbers() and (not argument.strip() or commands.split_argument(argument)[0])
+    return out.ok or bool(nothing_yet), out.text
 
 
 def _log(args):

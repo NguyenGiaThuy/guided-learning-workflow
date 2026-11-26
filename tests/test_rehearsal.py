@@ -127,21 +127,28 @@ class HooksLineTests(Base):
         self.assertEqual(code, 0, out)
         return out
 
-    def test_a_chat_the_hook_saw_begins_with_its_line(self):
+    def test_in_a_rehearsal_the_line_comes_after_the_rules_and_before_what_the_owner_sees(self):
         self.on()
         line = self.call("SessionStart")["systemMessage"]
+        self.assertIn("REHEARSAL run 1", line)
         out = self.status("2", "session=" + self.session)
-        self.assertEqual(out.splitlines()[0], line)
-        self.assertIn("REHEARSAL run 1", out.splitlines()[0])
-        self.assertEqual(out.split("\n", 1)[1], self.status("2"))
+        rules = rehearsal.rules(self.found())
+        self.assertTrue(out.startswith(rules + "\n" + line + "\n"), out)
+        self.assertIn(rehearsal.compare(self.found()), out.split(line, 1)[1])   # the owner sees the comparison too
+        self.assertEqual(out.replace(line + "\n", "", 1), self.status("2"))
 
     def test_a_chat_the_hook_did_not_see_says_so(self):
         self.on()
         self.call("SessionStart")
         out = self.status("2", "session=other-chat")
-        self.assertEqual(out.splitlines()[0], texts.HOOKS_NOT_SEEN)
+        self.assertIn("\n" + texts.HOOKS_NOT_SEEN + "\n", out)
         self.assertNotIn("Learning hooks: on", out)
-        self.assertEqual(out.split("\n", 1)[1], self.status("2"))
+        self.assertEqual(out.replace(texts.HOOKS_NOT_SEEN + "\n", "", 1), self.status("2"))
+
+    def test_the_skill_shows_everything_from_the_line_on(self):
+        text = (Path(__file__).resolve().parent.parent / "skills" / "summarize-phase" / "SKILL.md").read_text(
+            encoding="utf-8")
+        self.assertIn("from the line `Learning hooks:` to the end", text)
 
     def test_the_session_may_stand_first_and_the_number_be_left_out(self):
         self.call("SessionStart")

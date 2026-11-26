@@ -478,13 +478,14 @@ def rules(project):
     return texts.rehearsal_rules(render.run_number(project), (version.ROOT / "scripts" / "run.sh").as_posix())
 
 
-def run(project, name, argument="", watch=True, session=None):
-    """commands.run. In a rehearsal its text says so, and what the script sees is ticked (watch)."""
+def run(project, name, argument="", watch=True, session=None, above=None):
+    """commands.run. In a rehearsal its text says so, and what the script sees is ticked (watch).
+    `above`: a line for the owner, put right after the rules for the AI and above all the rest."""
     out = commands.run(project, name, argument)
     if not project.rehearsal:
-        return out
+        return out._replace(text=above + "\n" + out.text) if above else out
     lines = [rules(project) if out.ok and name in WITH_RULES
-             else texts.rehearsal_short(render.run_number(project))]
+             else texts.rehearsal_short(render.run_number(project))] + ([above] if above else [])
     if watch:
         lines += _note_command(project, name, argument, out.ok, session)
     if out.ok and name == "summarize-phase":

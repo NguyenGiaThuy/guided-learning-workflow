@@ -256,6 +256,17 @@ def _hooks_line_inserted(run):
     return Verdict(PASSED)
 
 
+def _hooks_line_in_a_rehearsal(run):
+    """The same in a rehearsal, where the rules for the AI stand above the line."""
+    lines = [h.get("systemMessage") for h in run.hooks("SessionStart")]
+    lines = [line for line in lines if line and "REHEARSAL run" in line]
+    if not lines:
+        return _failed("the hook did not give the line of a rehearsal")
+    if not contains(run.said_before("run.sh", "learning.py"), lines[-1]):
+        return _failed("the answer does not show the line: %s", run.said[:200])
+    return Verdict(PASSED)
+
+
 def _status_inserted(run):
     """By the skill itself: the hooks are off, because the one of the prompt gives the same text, and the AI shows
     it before it could have asked the script."""
@@ -401,6 +412,11 @@ def _owners_turn(root):
     _game(root, _handed_over(results=_tests("failed")), dict(CODE, **TEST_CODE))
 
 
+def _owners_turn_in_a_rehearsal(root):
+    _owners_turn(root)
+    helpers.set_switch(root, '{\n  "rehearsal": true\n}\n')
+
+
 def _phase_1_open(root):
     _game(root, _handed_over(), dict(CODE, **TEST_CODE), number=1)
 
@@ -459,6 +475,8 @@ CASES = [
           "anything. If no such line was given, answer: none. Use no tool."],
          _status_line, only=()),
     Case("status line in /summarize-phase", _owners_turn, ["/summarize-phase 2"], _hooks_line_inserted, only=()),
+    Case("status line in /summarize-phase, in a rehearsal", _owners_turn_in_a_rehearsal, ["/summarize-phase 2"],
+         _hooks_line_in_a_rehearsal, keep=LOCKED + (STATE,)),
     Case("status inserted", _owners_turn, ["/summarize-phase 2"], _status_inserted, options=HOOKS_OFF,
          only=()),
     Case("start blocked", _phase_1_open, ["/start-phase 2"], _blocked(texts.previous_open(2)), only=()),

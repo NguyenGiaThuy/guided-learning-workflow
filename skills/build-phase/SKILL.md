@@ -10,7 +10,7 @@ The status of the phase:
 
 !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" status $ARGUMENTS session=${CLAUDE_SESSION_ID}`
 
-If it says that guided learning is not set up, say that `/setup-learning` comes first, and stop. If it says that there is no phase, show that and stop.
+Begin your answer with its line `Learning hooks:`, unchanged. If it says that guided learning is not set up, say that `/setup-learning` comes first, and stop. If it says that there is no phase, show that and stop.
 
 A hook has already checked that it is the AI's turn. Its text is in your context: the part, its tasks (done or open), and its owner scripts. Do not check again. If there is no such text, the hooks do not run: say so and stop.
 
