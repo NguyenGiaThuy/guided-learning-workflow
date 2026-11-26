@@ -6,7 +6,7 @@ You build the game in phases. In each phase the AI does the surrounding work, an
 
 The plugin does not rely on the AI following written rules. A script keeps the state in files of your game, and hooks check your commands and refuse edits. So it works the same way every time, and no step depends on one chat.
 
-Version 0.2.0 is not released yet. See [CHANGELOG.md](CHANGELOG.md) and [the design](docs/design.md).
+Version 0.2.0. See [CHANGELOG.md](CHANGELOG.md) and [the design](docs/design.md).
 
 ## Commands
 
@@ -32,7 +32,7 @@ In Claude Code type:
 /plugin install guided-learning@guided-learning-workflow
 ```
 
-`<owner>` is the account that holds the repository. Nothing is published yet. Until then, start Claude Code with a copy of this repository: `claude --plugin-dir <folder of this repository>`.
+`<owner>` is the account that holds the repository. You can also start Claude Code with a copy of this repository: `claude --plugin-dir <folder of this repository>`.
 
 Open a new chat. In a project without guided learning the hooks do nothing, so you can install the plugin for all your projects.
 

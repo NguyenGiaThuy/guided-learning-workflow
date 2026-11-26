@@ -65,4 +65,6 @@ class FieldTests(unittest.TestCase):
 
     def test_version_0_2_0(self):
         self.assertEqual(json.loads(read(".claude-plugin/plugin.json"))["version"], "0.2.0")
-        self.assertIn("## 0.2.0 (unreleased)", read("CHANGELOG.md"))
+        self.assertIn("## 0.2.0 (2026-11-26)", read("CHANGELOG.md"))
+        self.assertNotIn("unreleased", read("CHANGELOG.md"))
+        self.assertNotIn("not released", read("README.md"))
