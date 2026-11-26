@@ -77,7 +77,7 @@ You can try the whole workflow on a fake game, Lantern Keeper, before you use it
 
 ## Platforms
 
-Tested: Windows 11 with Git Bash, Python 3.14 and Claude Code 2.1.332, in print mode (`claude -p`), with Sonnet, each enforced behavior 5 times ([table](docs/repeat-runs/0.1.0.md)). macOS, Linux and other versions were not tried. Above all on macOS: whether an edit of a locked file is refused when its path is written in another mix of upper and lower case.
+Tested: Windows 11 with Git Bash, Python 3.14 and Claude Code 2.1.332, in print mode (`claude -p`), with Sonnet, each enforced behavior 3 times ([table](docs/repeat-runs/0.2.0.md); 0.1.0: 5 times, [table](docs/repeat-runs/0.1.0.md)). macOS, Linux and other versions were not tried. Above all on macOS: whether an edit of a locked file is refused when its path is written in another mix of upper and lower case.
 
 Test results are read from NUnit 3 XML (Unity writes it), JUnit XML, or lines of `name,pass` and `name,fail`. So far only sample files were read, none of a real engine. Other AI tools than Claude Code do not work.
 
