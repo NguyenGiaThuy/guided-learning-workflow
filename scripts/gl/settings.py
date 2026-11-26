@@ -60,10 +60,18 @@ def _domain(value):
 OPTIONAL = {"domain": _domain, "words": _words, "tuning": lambda v: isinstance(v, bool)}
 
 
+def words_of(settings):
+    """The words of these settings: the defaults where they are missing or wrong."""
+    given = settings.get("words")
+    return texts.DEFAULT_WORDS._replace(**given) if _words(given) else texts.DEFAULT_WORDS
+
+
 def wrong(settings):
     """Settings that are missing or cannot be used, as sentences."""
-    return ([texts.setup_key(key, key in settings) for key, good in _CHECKS.items() if not good(settings.get(key))]
-            + [texts.setup_key(key, True) for key, good in OPTIONAL.items()
+    words = words_of(settings)
+    return ([texts.setup_key(key, key in settings, words) for key, good in _CHECKS.items()
+             if not good(settings.get(key))]
+            + [texts.setup_key(key, True, words) for key, good in OPTIONAL.items()
                if key in settings and not good(settings[key])])
 
 

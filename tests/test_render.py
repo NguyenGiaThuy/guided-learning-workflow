@@ -173,6 +173,72 @@ class OneLineTests(unittest.TestCase):
         self.assertRegex(render.one_line(proj), r"^Learning hooks: on \(\d+\.\d+\.\d+ [0-9a-f]{6}\)$")
 
 
+APP = texts.Words("app", "performance")
+D = texts.DEFAULT_WORDS
+
+
+class WordsTests(unittest.TestCase):
+    """Each text with the default words is today's text, word for word; with other words it uses them."""
+
+    def test_gap_no_target(self):
+        self.assertEqual(texts.gap_no_target(D), "No balance target.")
+        self.assertEqual(texts.gap_no_target(APP), "No performance target.")
+
+    def test_planning_started(self):
+        self.assertEqual(texts.planning_started(2, "P", "M", D, True), (
+            'Phase 2 is being planned. No code is written in this step.\nPlan it with the owner and fill in P: concepts, '
+            'owner scripts (3 to 5, each with path, concept, TODO numbers and tests), parts with tasks, balance targets '
+            '(measure, settings, min or max) and wrap-up questions with points. Decisions go to "Notes for later" in '
+            'M.\nThe owner accepts the plan with /approve-phase 2, which checks that all of this is there.'))
+        self.assertIn(" performance targets (measure", texts.planning_started(2, "P", "M", APP, True))
+
+    def test_score_balance(self):
+        self.assertEqual(texts.score_balance(2, 3, D), "Balance: 2/3 targets met.")
+        self.assertEqual(texts.score_balance(2, 3, APP), "Performance: 2/3 targets met.")
+        self.assertEqual(texts.score_balance(0, 1, texts.Words("app", "real-time")), "Real-time: 0/1 targets met.")
+
+    def test_capitalized(self):
+        self.assertEqual([texts.capitalized(w) for w in ("balance", "web app", "x", "iOS")],
+                         ["Balance", "Web app", "X", "IOS"])
+
+    def test_setup_texts(self):
+        self.assertEqual(texts.setup_settings_by_hand(D), (
+            "This game was set up before, so its own settings count. To change one, the owner edits "
+            ".claude/learning/project.json by hand."))
+        self.assertTrue(texts.setup_settings_by_hand(APP).startswith("This app was set up before"))
+        self.assertEqual(texts.setup_key("docs", True, D), (
+            '"docs" is wrong. It must be a folder of the game for the phase files, like "Docs/learning", '
+            'and not in .claude.'))
+        self.assertEqual(texts.setup_key("code", False, D),
+                         '"code" is missing. It must be a list of code folders of the game, like ["src"].')
+        self.assertIn("code folders of the app", texts.setup_key("code", False, APP))
+        self.assertEqual(texts.setup_elsewhere("R", D),
+                         "This folder is inside the game at R, which is set up already. Run setup there.")
+        self.assertIn("inside the app at R", texts.setup_elsewhere("R", APP))
+        self.assertEqual(texts.setup_ignored(D), (
+            "Git ignores .claude/learning/project.json because of a line in .gitignore, so the settings would not be "
+            "saved with the game. Change that line. With .claude/ for example: write .claude/* and below it "
+            "!.claude/learning/"))
+        self.assertIn("saved with the app.", texts.setup_ignored(APP))
+
+    def test_rehearsal_texts(self):
+        self.assertEqual(texts.rehearsal_short(4, D), "REHEARSAL run 4. This is the fake project, not your game.")
+        self.assertEqual(texts.rehearsal_short(4, APP), "REHEARSAL run 4. This is the fake project, not your app.")
+        self.assertTrue(texts.rehearsal_rules(4, "S", D).endswith("use no git, and leave the real game alone."))
+        self.assertTrue(texts.rehearsal_rules(4, "S", APP).endswith("use no git, and leave the real app alone."))
+
+    def test_no_game_word_left(self):
+        """Only DEFAULT_WORDS may say game or balance; comments and docstrings do not count."""
+        import ast
+        tree = ast.parse(Path(texts.__file__).read_text(encoding="utf-8"))
+        docstrings = {id(n.body[0].value) for n in ast.walk(tree)
+                      if isinstance(n, (ast.Module, ast.FunctionDef, ast.ClassDef)) and n.body
+                      and isinstance(n.body[0], ast.Expr) and isinstance(n.body[0].value, ast.Constant)}
+        found = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                 and id(n) not in docstrings and re.search(r"\b(game|games|balance)\b", n.value, re.I)]
+        self.assertEqual(sorted(found), ["balance", "game"], found)
+
+
 class TextTests(unittest.TestCase):
     def test_descriptions_match_the_design(self):
         rows = design_rows("### Descriptions")
@@ -184,7 +250,7 @@ class TextTests(unittest.TestCase):
 
     def test_next_line(self):
         self.assertEqual(texts.next_line("summarize-phase", 2), "Next: /summarize-phase 2  (step 4: your turn)")
-        self.assertEqual(texts.next_line("setup-learning", None), "Next: /setup-learning  (step 0: once per game)")
+        self.assertEqual(texts.next_line("setup-learning", None), "Next: /setup-learning  (step 0: once per project)")
 
     def test_steps_run_from_zero_to_five(self):
         steps = [v[0] for v in texts.COMMANDS.values()]

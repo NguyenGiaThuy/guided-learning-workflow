@@ -127,12 +127,12 @@ class ProjectTests(unittest.TestCase):
                 with self.assertRaises(store.BadJson) as cm:
                     project.find(self.root)
                 self.assertIn("project.json", str(cm.exception), (key, value))
-                self.assertIn(texts.setup_key(key, True), str(cm.exception), (key, value))
+                self.assertIn(texts.setup_key(key, True, texts.DEFAULT_WORDS), str(cm.exception), (key, value))
         for data in ({}, {k: v for k, v in helpers.PROJECT_JSON.items() if k != "code"}):
             helpers.write_json(pj, data)
             with self.assertRaises(store.BadJson) as cm:
                 project.find(self.root)
-            self.assertIn(texts.setup_key("code", False), str(cm.exception))
+            self.assertIn(texts.setup_key("code", False, texts.DEFAULT_WORDS), str(cm.exception))
 
     def test_an_unknown_key_is_a_warning_in_the_status_line(self):
         pj = self.root / ".claude" / "learning" / "project.json"
@@ -163,7 +163,7 @@ class ProjectTests(unittest.TestCase):
         helpers.write_json(self.root / ".claude" / "learning" / "project.json", dict(data, codes=["src"]))
         with self.assertRaises(project.BadSettings) as cm:
             project.find(self.root)
-        self.assertIn(texts.setup_key("code", False), str(cm.exception))
+        self.assertIn(texts.setup_key("code", False, texts.DEFAULT_WORDS), str(cm.exception))
         self.assertIn(texts.setup_unknown("codes"), str(cm.exception))   # says what it may be
 
     def test_an_unknown_key_of_the_rehearsal_is_no_error(self):

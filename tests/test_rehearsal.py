@@ -118,6 +118,19 @@ class Base(unittest.TestCase):
         return code, out.getvalue()
 
 
+class WordsTests(Base):
+    def test_real_words_in_the_lines_about_the_real_project(self):
+        helpers.write_json(self.root / LEARNING / "project.json",
+                           dict(helpers.PROJECT_JSON, words={"project": "app", "targets": "performance"}))
+        found = self.on()
+        self.assertTrue(rehearsal.rules(found).endswith("leave the real app alone."))
+        self.assertEqual(found.active.words, texts.DEFAULT_WORDS)   # the fake project is a game
+        blocked, text = self.prompt("/finish-phase 2")
+        self.assertTrue(blocked)
+        self.assertIn(texts.rehearsal_short(render.run_number(found), found.words), text)
+        self.assertIn("not your app.", text)
+
+
 class HooksLineTests(Base):
     """`status session=<id>`, as the skills insert it: the status line of SessionStart, for a panel that does not
     show the messages of SessionStart, and only if the hook really ran in that chat."""
@@ -950,7 +963,7 @@ class FullRunTests(Base):
             self.run_cli("log", "rating", "concept=" + concept, "rating=with help", "phase=2")
         shown = self.accepted("/finish-phase 2")
         closing = commands.closing_text(active, 2)
-        self.assertEqual(shown, texts.rehearsal_short(rehearsal.render.run_number(self.found())) + "\n" + closing)
+        self.assertEqual(shown, texts.rehearsal_short(rehearsal.render.run_number(self.found()), texts.DEFAULT_WORDS) + "\n" + closing)
         self.assertEqual(self.call("Stop", last_assistant_message="no")["decision"], "block")
         self.assertIsNone(self.call("Stop", last_assistant_message="Done.\n" + closing))
 

@@ -482,7 +482,7 @@ class ApproveTests(Base):
     def test_an_empty_plan_and_a_missing_one(self):
         proj = self.planning({"phase": 2})
         text = self.refused("approve", "2")
-        for item in (texts.GAP_NO_CONCEPT, texts.gap_script_count(0), texts.GAP_NO_TARGET, texts.GAP_NO_PART):
+        for item in (texts.GAP_NO_CONCEPT, texts.gap_script_count(0), texts.gap_no_target(texts.DEFAULT_WORDS), texts.GAP_NO_PART):
             self.assertIn(item, text)
         proj.plan_path(2).unlink()
         self.assertIn(texts.GAP_NO_CONCEPT, self.refused("approve", "2"))
@@ -513,7 +513,7 @@ class ApproveTests(Base):
             (lambda p: p[s][0].update(todos=["1.1", "2.2"]), texts.gap_todo("Owner 1 Moth", "2.2")),
             (lambda p: p[s][0].update(todos=["1.1", "1.x"]), texts.gap_todo("Owner 1 Moth", "1.x")),
             (lambda p: p[s][0].update(todos=["1.1", "1.1"]), texts.gap_duplicate("TODOs", "1.1")),
-            (lambda p: p.update(targets=[]), texts.GAP_NO_TARGET),
+            (lambda p: p.update(targets=[]), texts.gap_no_target(texts.DEFAULT_WORDS)),
             (lambda p: p[t][0].update(measure=" "), texts.gap_target("wins", "measure")),
             (lambda p: p[t][0].update(settings=[]), texts.gap_target("wins", "settings")),
             (lambda p: p[t][0].update(min="40"), texts.gap_target_range("wins")),
@@ -613,7 +613,7 @@ class ApproveTests(Base):
         self.accepted("approve", "2")
         self.put_plan(dict(full_plan(), targets=[]))
         text = self.refused("approve", "2 change: none")
-        self.assertIn(texts.GAP_NO_TARGET, text)
+        self.assertIn(texts.gap_no_target(texts.DEFAULT_WORDS), text)
         self.assertTrue(text.endswith(texts.next_line("approve-phase", 2)))   # it is planned already
 
     HANDED = {"1": {"name": "Moth", "path": "src/Moth.cs", "todos": ["1.1", "1.2"]},
@@ -795,7 +795,7 @@ class BuildTests(Base):
         self.make({2: {"state": {"status": "planning"}, "plan": dict(full_plan(), targets=[])}})
         text = self.refused("build", "2")
         self.assertIn(texts.plan_not_approved(2), text)
-        self.assertIn(texts.GAP_NO_TARGET, text)
+        self.assertIn(texts.gap_no_target(texts.DEFAULT_WORDS), text)
         self.assertTrue(text.endswith(texts.next_line("start-phase", 2)))
         self.put_plan(full_plan())
         self.assertTrue(self.refused("build", "2").endswith(texts.next_line("approve-phase", 2)))

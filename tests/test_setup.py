@@ -68,7 +68,7 @@ class ApplyTests(Base):
         done = self.apply(claudeMd=True)
         self.assertEqual(self.files(), before)
         self.assertIn(texts.setup_kept(".claude/learning/project.json"), done)
-        self.assertIn(texts.SETUP_SETTINGS_BY_HAND, done)
+        self.assertIn(texts.setup_settings_by_hand(texts.DEFAULT_WORDS), done)
 
     def test_existing_files_are_not_overwritten(self):
         raw = json.dumps(dict(PROJECT_JSON, docs="Notes", background="Java")).encode("utf-8")
@@ -152,17 +152,17 @@ class ApplyTests(Base):
     def test_a_gitignore_that_hides_the_settings_is_named(self):
         self.git("init", "-q")
         self.put(".gitignore", b"*.log\n")
-        self.assertNotIn(texts.SETUP_IGNORED, self.apply())
+        self.assertNotIn(texts.setup_ignored(texts.DEFAULT_WORDS), self.apply())
         for text in (b".claude/\n", b"project.json\n", b".claude/*\n"):
             self.put(".gitignore", text)
-            self.assertIn(texts.SETUP_IGNORED, self.apply(), text)
+            self.assertIn(texts.setup_ignored(texts.DEFAULT_WORDS), self.apply(), text)
         self.put(".gitignore", b".claude/*\n!.claude/learning/\n")
-        self.assertNotIn(texts.SETUP_IGNORED, self.apply())
+        self.assertNotIn(texts.setup_ignored(texts.DEFAULT_WORDS), self.apply())
 
     def test_without_git_nothing_is_said_about_it(self):
         self.put(".gitignore", b".claude/\n")
         with mock.patch("subprocess.run", side_effect=FileNotFoundError):
-            self.assertNotIn(texts.SETUP_IGNORED, self.apply())
+            self.assertNotIn(texts.setup_ignored(texts.DEFAULT_WORDS), self.apply())
 
     def test_project_json_is_written_last(self):
         written = []

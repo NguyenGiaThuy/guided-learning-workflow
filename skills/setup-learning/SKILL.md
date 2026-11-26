@@ -1,6 +1,6 @@
 ---
 name: setup-learning
-description: "Step 0, once per game: set up guided learning in this project."
+description: "Step 0, once per project: set up guided learning in this project."
 disable-model-invocation: true
 ---
 

@@ -85,7 +85,7 @@ Every command has a description and an argument hint, shown in the `/` menu. The
 
 | Command | Hint | Description |
 |---|---|---|
-| `/setup-learning` | | Step 0, once per game: set up guided learning in this project. |
+| `/setup-learning` | | Step 0, once per project: set up guided learning in this project. |
 | `/start-phase` | `<N> [skip: reason]` | Step 1: begin PLANNING phase N with the AI. Checks that the phase before it is finished. Writes no code. |
 | `/approve-phase` | `<N> [change: reason]` | Step 2: you ACCEPT the plan of phase N and lock its targets. Writes no code. |
 | `/build-phase` | `[N]` | Step 3: the AI WRITES the boilerplate (TODO shells, tests, the rest), or resumes it. |

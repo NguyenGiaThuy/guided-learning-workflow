@@ -475,7 +475,8 @@ def _note_command(project, name, argument, ok, session):
 
 def rules(project):
     """What the AI must know in a rehearsal."""
-    return texts.rehearsal_rules(render.run_number(project), (version.ROOT / "scripts" / "run.sh").as_posix())
+    return texts.rehearsal_rules(render.run_number(project), (version.ROOT / "scripts" / "run.sh").as_posix(),
+                                project.words)
 
 
 def run(project, name, argument="", watch=True, session=None, above=None):
@@ -485,7 +486,7 @@ def run(project, name, argument="", watch=True, session=None, above=None):
     if not project.rehearsal:
         return out._replace(text=above + "\n" + out.text) if above else out
     lines = [rules(project) if out.ok and name in WITH_RULES
-             else texts.rehearsal_short(render.run_number(project))] + ([above] if above else [])
+             else texts.rehearsal_short(render.run_number(project), project.words)] + ([above] if above else [])
     if watch:
         lines += _note_command(project, name, argument, out.ok, session)
     if out.ok and name == "summarize-phase":

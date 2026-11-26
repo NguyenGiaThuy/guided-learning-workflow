@@ -201,7 +201,7 @@ def _planning_lines(project, n, data):
         lines = [texts.rehearsal_planning(n)]
     else:
         lines = [texts.planning_started(n, _docs_path(project, project.plan_path(n)),
-                                        _docs_path(project, project.md_path(n)))]
+                                        _docs_path(project, project.md_path(n)), project.words, project.tuning)]
     carried = data.get("carried") or []
     if carried:
         lines += [texts.CARRIED_HEADING] + [texts.bullet(c) for c in carried]

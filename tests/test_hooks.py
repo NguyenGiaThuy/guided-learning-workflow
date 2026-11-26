@@ -1021,7 +1021,7 @@ class EndToEndTests(Base):
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
         self.assertEqual((done.returncode, done.stderr), (1, b""))
         self.assertIn("project.json", done.stdout.decode("utf-8"))
-        self.assertIn(texts.setup_key("code", True), done.stdout.decode("utf-8"))
+        self.assertIn(texts.setup_key("code", True, texts.DEFAULT_WORDS), done.stdout.decode("utf-8"))
 
     def test_bad_words_in_project_json_deny_edits(self):
         self.make()

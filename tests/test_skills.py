@@ -164,7 +164,7 @@ class RuleTests(unittest.TestCase):
     def test_the_owner_says_when_tests_are_simulated(self):
         for name in ("build-phase", "summarize-phase"):
             self.says(name, "simulated", "only when the owner says so")
-        self.assertIn("only when the owner says so", texts.rehearsal_rules(1, "x"))
+        self.assertIn("only when the owner says so", texts.rehearsal_rules(1, "x", texts.DEFAULT_WORDS))
 
     def test_planning_is_resumed_and_saved_in_blocks(self):
         self.says("start-phase", "Read the plan and `phase-N.md` first", "Save each block as soon as it is agreed")

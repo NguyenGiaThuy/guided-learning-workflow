@@ -7,6 +7,11 @@ Words = namedtuple("Words", "project targets")
 DEFAULT_WORDS = Words("game", "balance")
 
 
+def capitalized(word):
+    """A word of the owner at the start of a sentence: only its first letter changes."""
+    return word[:1].upper() + word[1:]
+
+
 def bad_json(file, line, detail):
     return "%s is not valid JSON (line %d): %s" % (file, line, detail)
 
@@ -65,8 +70,8 @@ def result_unreadable(file, detail):
 # key: command name without the slash; value: (step, argument hint, description).
 # The hints and descriptions are the table "Descriptions" of docs/design.md, word for word.
 COMMANDS = {
-    "setup-learning": ("step 0: once per game", "",
-                       "Step 0, once per game: set up guided learning in this project."),
+    "setup-learning": ("step 0: once per project", "",
+                       "Step 0, once per project: set up guided learning in this project."),
     "start-phase": ("step 1: plan with the AI", "<N> [skip: reason]",
                     "Step 1: begin PLANNING phase N with the AI. Checks that the phase before it is "
                     "finished. Writes no code."),
@@ -351,13 +356,13 @@ def already_started(n, status):
     return "Phase %s was started already. Its status: %s." % (n, status)
 
 
-def planning_started(n, plan, md):
+def planning_started(n, plan, md, words, tuning):
     return ("Phase %s is being planned. No code is written in this step.\n"
             "Plan it with the owner and fill in %s: concepts, owner scripts (3 to 5, each with path, concept, "
-            "TODO numbers and tests), parts with tasks, balance targets (measure, settings, min or max) and "
+            "TODO numbers and tests), parts with tasks, %s targets (measure, settings, min or max) and "
             "wrap-up questions with points. Decisions go to \"Notes for later\" in %s.\n"
             "The owner accepts the plan with /approve-phase %s, which checks that all of this is there."
-            % (n, plan, md, n))
+            % (n, plan, words.targets, md, n))
 
 
 def carried_concept(name):
@@ -377,7 +382,10 @@ def plan_incomplete(name):
 
 
 GAP_NO_CONCEPT = "No concept."
-GAP_NO_TARGET = "No balance target."
+def gap_no_target(words):
+    return "No %s target." % words.targets
+
+
 GAP_NO_PART = "No part."
 _SCRIPT_KEYS = {"path": "a path", "concept": "a concept", "todos": "a list of TODO numbers as text, like \"1.1\"",
                 "tests": "a list of test names"}
@@ -800,8 +808,8 @@ def score_predict(right, total):
     return "Predict: %d/%d tweaks had the right predicted direction." % (right, total)
 
 
-def score_balance(met, total):
-    return "Balance: %d/%d targets met." % (met, total)
+def score_balance(met, total, words):
+    return "%s: %d/%d targets met." % (capitalized(words.targets), met, total)
 
 
 def score_explain(ratings):
@@ -819,13 +827,16 @@ def last_phase(value):
 # --- setup ----------------------------------------------------------------------------------------
 
 SETUP_GIVEN = "The settings"
-SETUP_SETTINGS_BY_HAND = ("This game was set up before, so its own settings count. To change one, the owner edits "
-                          ".claude/learning/project.json by hand.")
+def setup_settings_by_hand(words):
+    return ("This %s was set up before, so its own settings count. To change one, the owner edits "
+            ".claude/learning/project.json by hand." % words.project)
+
+
 SETUP_SECTION_ADDED = "Added to CLAUDE.md: the section of guided learning."
 SETUP_SECTION_THERE = "CLAUDE.md has the section of guided learning already and was not changed."
 _SETUP_KEYS = {
-    "docs": "a folder of the game for the phase files, like \"Docs/learning\", and not in .claude",
-    "code": "a list of code folders of the game, like [\"src\"]",
+    "docs": "a folder of the {project} for the phase files, like \"Docs/learning\", and not in .claude",
+    "code": "a list of code folders of the {project}, like [\"src\"]",
     "extensions": "a list of file extensions of the code, like [\".cs\"]",
     "ownerMark": "the text in the code that marks an owner test, on one line",
     "suites": "a list of names of test suites, like [\"Unit\"]",
@@ -837,8 +848,9 @@ _SETUP_KEYS = {
 }
 
 
-def setup_key(key, given):
-    return "\"%s\" is %s. It must be %s." % (key, "wrong" if given else "missing", _SETUP_KEYS[key])
+def setup_key(key, given, words):
+    must = _SETUP_KEYS[key].replace("{project}", words.project)
+    return "\"%s\" is %s. It must be %s." % (key, "wrong" if given else "missing", must)
 
 
 def setup_unknown(key):
@@ -863,8 +875,8 @@ def setup_no_file(path):
     return "There is no settings file %s." % path
 
 
-def setup_elsewhere(root):
-    return "This folder is inside the game at %s, which is set up already. Run setup there." % root
+def setup_elsewhere(root, words):
+    return "This folder is inside the %s at %s, which is set up already. Run setup there." % (words.project, root)
 
 
 def setup_written(name):
@@ -879,9 +891,10 @@ def setup_lines_added(name, lines):
     return "Added to %s: %s" % (name, ", ".join(lines))
 
 
-SETUP_IGNORED = ("Git ignores .claude/learning/project.json because of a line in .gitignore, so the settings would not "
-                 "be saved with the game. Change that line. With .claude/ for example: write .claude/* and below it "
-                 "!.claude/learning/")
+def setup_ignored(words):
+    return ("Git ignores .claude/learning/project.json because of a line in .gitignore, so the settings would not "
+            "be saved with the %s. Change that line. With .claude/ for example: write .claude/* and below it "
+            "!.claude/learning/" % words.project)
 
 
 def settings_wrong(file, problems):
@@ -908,16 +921,16 @@ def rehearsal_planning(n):
             "show this text and stop." % n)
 
 
-def rehearsal_short(run):
-    return "REHEARSAL run %s. This is the fake project, not your game." % run
+def rehearsal_short(run, words):
+    return "REHEARSAL run %s. This is the fake project, not your %s." % (run, words.project)
 
 
-def rehearsal_rules(run, script):
+def rehearsal_rules(run, script, words):
     return ("REHEARSAL run %s. The project is the folder .claude/learning/rehearsal: every path below is inside it, "
             "also the settings in .claude/learning/project.json. Branch, merge and test results are simulated, with: "
             "bash \"%s\" rehearse pass | fail | merge | branch [name]. The AI runs that, and \"rehearse "
-            "check <id>\", only when the owner says so. Run no tests, use no git, and leave the real game alone."
-            % (run, script))
+            "check <id>\", only when the owner says so. Run no tests, use no git, and leave the real %s alone."
+            % (run, script, words.project))
 
 
 def rehearsal_not_usable(path):

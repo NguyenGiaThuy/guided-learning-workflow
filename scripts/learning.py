@@ -117,7 +117,7 @@ def _setup(args):
     root = os.getcwd()
     found = project.find(root)
     if found and project.norm(found.root) != project.norm(root):
-        raise Refused(texts.setup_elsewhere(found.root))
+        raise Refused(texts.setup_elsewhere(found.root, found.words))
     own = project.norm(paths[0]) == project.norm(os.path.join(root, setup.PROJECT))
     done = setup.apply(root, store.read(paths[0]), claudeMd=SETUP_FLAG in args, own=own)
     try:

@@ -117,8 +117,8 @@ def apply(root, settings, claudeMd=False, own=False):
     for write, path, content in writes:
         write(path, content)
     if existing:
-        done.append(texts.SETUP_SETTINGS_BY_HAND)
+        done.append(texts.setup_settings_by_hand(Project(root, settings).words))
         done += [texts.unknown_settings(unknown(settings))] if unknown(settings) else []
     here = Project(root, settings)
     done += [texts.setup_no_folder(d) for d in here.missing_code_dirs]
-    return done + ([texts.SETUP_IGNORED] if state.is_ignored(here, PROJECT) else [])
+    return done + ([texts.setup_ignored(here.words)] if state.is_ignored(here, PROJECT) else [])

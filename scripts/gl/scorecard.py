@@ -54,7 +54,7 @@ def render(project, n):
         texts.scorecard_heading(n),
         trend(texts.score_build(b["passing"], b["total"], b["help"]), "build", "passing", "total"),
         trend(texts.score_predict(p["right"], p["total"]), "predict", "right", "total"),
-        trend(texts.score_balance(bal["met"], bal["total"]), "balance", "met", "total"),
+        trend(texts.score_balance(bal["met"], bal["total"], project.words), "balance", "met", "total"),
         texts.score_explain(card["explain"]),
         texts.score_process(card["process"]["surprised"], card["process"]["differently"]),
     ])
