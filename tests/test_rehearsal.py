@@ -148,7 +148,7 @@ class HooksLineTests(Base):
     def test_the_skill_shows_everything_from_the_line_on(self):
         text = (Path(__file__).resolve().parent.parent / "skills" / "summarize-phase" / "SKILL.md").read_text(
             encoding="utf-8")
-        self.assertIn("from the line `Learning hooks:` to the end", text)
+        self.assertIn("before you use any tool: in a code block, unchanged, from the line `Learning hooks:` to the end", text)
 
     def test_the_session_may_stand_first_and_the_number_be_left_out(self):
         self.call("SessionStart")
