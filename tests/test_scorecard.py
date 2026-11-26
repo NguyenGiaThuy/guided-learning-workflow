@@ -78,6 +78,26 @@ class RowTests(Base):
         self.assertEqual(self.card(dict(old, status="done"))["build"]["passing"], 3)
 
 
+class NoTuningTests(Base):
+    def test_no_balance_or_predict_line_without_targets_and_tweaks(self):
+        ph = self.phase({"log": [{"kind": "rating", "concept": "ai", "rating": "with help"}]})
+        ph["plan"]["targets"] = []
+        text = scorecard.render(self.make({2: ph}), 2)
+        self.assertFalse([x for x in text.splitlines() if x.startswith(("Balance:", "Predict:"))], text)
+        self.assertIn("Build:", text)
+
+    def test_lines_stay_with_targets(self):
+        root = helpers.make_project(self.tmp, phases={2: self.phase()}, files=CODE, settings={"tuning": False})
+        text = scorecard.render(project.find(root), 2)
+        self.assertIn(texts.score_balance(1, 1, texts.DEFAULT_WORDS), text)
+        self.assertIn(texts.score_predict(0, 0), text)
+
+    def test_a_tweak_keeps_the_predict_line(self):
+        ph = self.phase({"log": [{"kind": "tweak", "predicted": "up", "right": True}]})
+        ph["plan"]["targets"] = []
+        self.assertIn(texts.score_predict(1, 1), scorecard.render(self.make({2: ph}), 2))
+
+
 class TrendTests(Base):
     def two(self, previous):
         return scorecard.render(self.make({1: self.phase(previous, n=1), 2: self.phase()}), 2)

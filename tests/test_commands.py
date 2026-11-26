@@ -10,7 +10,7 @@ from unittest import mock
 
 import helpers
 from helpers import FULL_MD, OLD, TEST_CODE, TWO_PARTS, full_plan, shell, suite_result
-from gl import commands, project, render, results, state, store, texts, version
+from gl import commands, plan, project, render, results, state, store, texts, version
 
 
 class Base(unittest.TestCase):
@@ -463,6 +463,25 @@ class ApproveTests(Base):
     def gaps(self, plan_):
         self.planning(plan_)
         return self.refused("approve", "2")
+
+    def test_no_target_is_no_gap_with_tuning_off(self):
+        p = full_plan()
+        p["targets"] = []
+        self.make({2: {"state": {"status": "planning"}, "plan": p}}, settings={"tuning": False})
+        self.assertEqual(plan.plan_gaps(self.project, 2), [])
+        self.accepted("approve", "2")
+
+    def test_a_target_is_still_checked_with_tuning_off(self):
+        p = full_plan()
+        p["targets"][0]["measure"] = " "
+        self.make({2: {"state": {"status": "planning"}, "plan": p}}, settings={"tuning": False})
+        self.assertEqual(plan.plan_gaps(self.project, 2), [texts.gap_target("wins", "measure")])
+
+    def test_planning_text_without_targets(self):
+        self.make(settings={"tuning": False})
+        text = self.accepted("start", "1")
+        self.assertNotIn("targets", text)
+        self.assertEqual(texts.planning_started(1, "P", "M", texts.DEFAULT_WORDS, False).count("target"), 0)
 
     def test_incomplete_plan_lists_every_gap(self):
         p = full_plan()

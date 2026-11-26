@@ -93,6 +93,21 @@ class StatusTextTests(Base):
         text = self.show(plan([s]), {"src/Moth.cs": shell(["1.1"])}, {"turn": None})
         self.assertIn(texts.lost_todo("1.2", "Owner 1 Moth", "src/Moth.cs"), text)
 
+    def test_then_line_without_targets(self):
+        s = script(1, "Moth", ["1.1"], [])
+        text = self.show(plan([s]), {"src/Moth.cs": shell(["1.1"])})
+        self.assertIn("\nThen: wrap-up\n", text)
+        self.assertNotIn("tune", text)
+
+    def test_then_line_with_targets_and_tuning_off(self):
+        s = script(1, "Moth", ["1.1"], [])
+        root = helpers.make_project(self.tmp, phases={2: {"state": {"status": "build", "branch": "stage-2",
+                                                                    "turn": "owner", "part": 0},
+                                                          "plan": plan([s], targets=TARGETS[:1])}},
+                                    files={"src/Moth.cs": shell(["1.1"])}, settings={"tuning": False})
+        text = render.status(state.compute(project.find(root), 2))
+        self.assertIn("\nThen: tune (0 of 1 target), wrap-up\n", text)
+
     def test_tune_and_wrap_up(self):
         s = script(1, "Moth", ["1.1"], [])
         files = {"src/Moth.cs": shell([])}

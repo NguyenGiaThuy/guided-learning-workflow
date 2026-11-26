@@ -38,7 +38,7 @@ def _table(st, header_right):
 
 def _then(st):
     steps = []
-    if st.status == "build":
+    if st.status == "build" and st.targets_total:
         steps.append(texts.tune_step(st.targets_met, st.targets_total))
     if st.status in ("build", "tune"):
         steps.append(texts.WRAP_UP)

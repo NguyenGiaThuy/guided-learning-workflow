@@ -93,8 +93,8 @@ def _part_gaps(parts, scripts):
     return gaps
 
 
-def _target_gaps(targets, words):
-    gaps = [] if targets else [texts.gap_no_target(words)]
+def _target_gaps(targets, words, tuning):
+    gaps = [] if targets or not tuning else [texts.gap_no_target(words)]
     for t in targets:
         low, high = t.get("min"), t.get("max")
         given = [v for v in (low, high) if v is not None]
@@ -115,7 +115,7 @@ def plan_gaps(project, n):
     if not concepts:
         gaps.append(texts.GAP_NO_CONCEPT)
     gaps += [texts.gap_concept_name(c.get("id")) for c in concepts if not _filled(c.get("name"))]
-    gaps += _script_gaps(project, scripts, concepts, parts) + _part_gaps(parts, scripts) + _target_gaps(targets, project.words)
+    gaps += _script_gaps(project, scripts, concepts, parts) + _part_gaps(parts, scripts) + _target_gaps(targets, project.words, project.tuning)
     asked = {str(q.get("concept")) for q in questions}
     gaps += [texts.gap_question(c.get("name") or c.get("id")) for c in concepts if str(c.get("id")) not in asked]
     gaps += [texts.gap_points(q.get("id")) for q in questions if not _filled_list(q.get("points"))]

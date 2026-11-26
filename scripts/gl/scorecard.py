@@ -50,11 +50,14 @@ def render(project, n):
         return line if before is None else "%s %s" % (line, texts.last_phase("%d/%d" % (before[key][a], before[key][b])))
 
     b, p, bal = card["build"], card["predict"], card["balance"]
+    tuned = bal["total"] or p["total"]   # a phase without targets and without tweaks had no tuning
     return "\n".join([
         texts.scorecard_heading(n),
         trend(texts.score_build(b["passing"], b["total"], b["help"]), "build", "passing", "total"),
+    ] + ([
         trend(texts.score_predict(p["right"], p["total"]), "predict", "right", "total"),
         trend(texts.score_balance(bal["met"], bal["total"], project.words), "balance", "met", "total"),
+    ] if tuned else []) + [
         texts.score_explain(card["explain"]),
         texts.score_process(card["process"]["surprised"], card["process"]["differently"]),
     ])

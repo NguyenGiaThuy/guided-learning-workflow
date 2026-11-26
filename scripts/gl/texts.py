@@ -357,12 +357,13 @@ def already_started(n, status):
 
 
 def planning_started(n, plan, md, words, tuning):
+    targets = ", %s targets (measure, settings, min or max)" % words.targets if tuning else ""
     return ("Phase %s is being planned. No code is written in this step.\n"
             "Plan it with the owner and fill in %s: concepts, owner scripts (3 to 5, each with path, concept, "
-            "TODO numbers and tests), parts with tasks, %s targets (measure, settings, min or max) and "
+            "TODO numbers and tests), parts with tasks%s and "
             "wrap-up questions with points. Decisions go to \"Notes for later\" in %s.\n"
             "The owner accepts the plan with /approve-phase %s, which checks that all of this is there."
-            % (n, plan, words.targets, md, n))
+            % (n, plan, targets, md, n))
 
 
 def carried_concept(name):

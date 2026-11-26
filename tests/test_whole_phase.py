@@ -208,6 +208,45 @@ class WholePhaseTests(unittest.TestCase):
         self.assertEqual((self.data(1)["status"], self.data(2)["status"]), ("done", "planning"))
         self.assertIn("Scorecard of phase 1", self.typed("/summarize-phase 1"))
 
+    def test_a_whole_phase_without_tuning(self):
+        helpers.write_json(self.root / ".claude" / "learning" / "project.json",
+                           dict(helpers.PROJECT_JSON, tuning=False, words={"project": "app"}))
+        self.commit()
+        self.switch("-c", "stage-1")
+        started = self.typed("/start-phase 1")
+        self.assertNotIn("targets", started)
+        no_targets = dict(full_plan(1), targets=[])
+        helpers.write_json(self.root / "Docs" / "learning" / "phase-1.plan.json", no_targets)
+        self.assertTrue(self.typed("/approve-phase 1").endswith(texts.next_line("build-phase", 1)))
+        self.typed("/build-phase")
+        for name, todos in SHELLS.items():
+            self.save(name, shell(todos))
+        for name, text in dict(TEST_CODE, **GAME_TESTS).items():
+            self.save(name, text.replace("void", MARK + "void") if name in TEST_CODE else text)
+        self.cli("log", "task", "part=1", "index=1")
+        self.record(["GameTests.Starts", "GameTests.Ends"], OWNER)
+        self.assertIn("handed over", self.cli("hand-over", "1"))
+        status = self.cli("status", "1")
+        self.assertIn("\nThen: wrap-up\n", status)
+        self.assertNotIn("tune", status)
+        for name in SHELLS:
+            self.save(name, shell([]))
+        for name, text in TEST_CODE.items():
+            self.save(name, text)
+        self.record(OWNER + ["GameTests.Starts", "GameTests.Ends"])
+        self.assertIn("Phase 1 - wrap-up", self.typed("/summarize-phase 1"))
+        self.cli("log", "rating", "concept=ai", "rating=with help")
+        self.save("Docs/learning/phase-1.md", FULL_MD.replace("Phase 2", "Phase 1"))
+        self.assertTrue(self.typed("/summarize-phase 1").endswith(texts.next_line("finish-phase", 1)))
+        self.commit()
+        text = self.typed("/finish-phase 1")
+        self.assertTrue(text.startswith("Phase 1 is done."), text)
+        self.assertEqual(self.data(1)["status"], "done")
+        md = (self.root / "Docs" / "learning" / "phase-1.md").read_text(encoding="utf-8")
+        self.assertIn("Build:", md)
+        self.assertNotIn("Balance:", md)
+        self.assertNotIn("Predict:", md)
+
     def test_saves_between_runs_of_three_scripts(self):
         self.built()
         self.save("src/Moth.cs", shell([]))
