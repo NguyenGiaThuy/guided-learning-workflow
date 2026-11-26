@@ -441,8 +441,9 @@ HOOKS_OFF = ["--settings", '{"disableAllHooks": true}']
 
 CASES = [
     Case("status line", _owners_turn,
-         ["What were you told about the state of the learning hooks in this chat? Quote it from the words Learning "
-          "hooks on, word for word, and say nothing else. If you were told nothing, answer: none. Use no tool."],
+         ["At the start of this chat, a hook gave you one line that begins with \"Learning hooks:\". Copy that whole "
+          "line exactly as it was given, character for character, and say nothing else. Do not make up or reword "
+          "anything. If no such line was given, answer: none. Use no tool."],
          _status_line, only=()),
     Case("status inserted", _owners_turn, ["/summarize-phase 2"], _status_inserted, options=HOOKS_OFF,
          only=()),
