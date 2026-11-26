@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 import helpers
-from gl import commands, hooks, project, results, texts
+from gl import commands, hooks, project, results, store, texts
 from repeat import cases, processes, run
 
 MOTH, CONFIG, STATE = "src/Moth.cs", ".claude/learning/config.json", "Docs/learning/phase-2.json"
@@ -95,7 +95,8 @@ class ListTests(unittest.TestCase):
     def test_the_cases_of_the_brief(self):
         self.assertEqual({c.name for c in cases.CASES if not c.extra}, {
             "status line", "status line in /summarize-phase",
-            "status line in /summarize-phase, in a rehearsal", "status inserted", "start blocked", "build blocked before approval",
+            "status line in /summarize-phase, in a rehearsal", "status inserted", "start blocked",
+            "start blocked, other words", "finish without tuning", "build blocked before approval",
             "hand-over with a missing TODO", "finish too early", "finish", "closing text", "edit of a locked script",
             "edit of a locked script in a subagent", "code before approval", "change through the shell noticed",
             "config.json edit refused", "AI starting a command refused"})
@@ -202,6 +203,14 @@ class BlockedTests(CaseBase):
         self.write("src/Bat.cs", "class Bat {}")
         self.assert_verdict("failed", answered, end(reason))
 
+    def test_start_in_other_words(self):
+        self.blocked("start blocked, other words", "/start-phase 2", "not finished")
+        self.assertEqual(project.find(self.root).words, texts.Words("app", "performance"))
+        answered = self.hook("UserPromptSubmit", {"prompt": "/start-phase 2"})
+        reason = json.loads(answered["stdout"])["reason"]
+        game = hook("SessionStart", {"systemMessage": "Learning hooks: on - the game"})
+        self.assert_verdict("failed", game, answered, end(reason))   # a text of the plugin says game
+
     def test_start(self):
         self.blocked("start blocked", "/start-phase 2", "phase 1 is not finished")
 
@@ -286,6 +295,20 @@ class FinishTests(CaseBase):
         self.assert_verdict("failed", done, say("Done."), end("Done."))   # not in the answer
         self.hook("Stop", {"last_assistant_message": text})
         self.assert_verdict("passed", done, say("Done.\n" + text), end("Done.\n" + text))
+
+    def test_finish_without_tuning(self):
+        self.prepare("finish without tuning")
+        found = project.find(self.root)
+        self.assertIs(found.tuning, False)
+        self.assertEqual(store.read(found.plan_path(2))["targets"], [])
+        done = self.hook("UserPromptSubmit", {"prompt": "/finish-phase 2"})
+        text = json.loads(done["stdout"])["hookSpecificOutput"]["additionalContext"]
+        self.assertEqual(text, cases.CLOSING)
+        self.assert_verdict("failed", done, say("Done."), end("Done."))
+        self.hook("Stop", {"last_assistant_message": text})
+        self.assert_verdict("passed", done, say("Done.\n" + text), end("Done.\n" + text))
+        notes = (self.root / cases.NOTES).read_text(encoding="utf-8")
+        self.assertNotIn("Balance:", notes)
 
     def test_closing_text(self):
         self.prepare("closing text")
@@ -486,7 +509,7 @@ class DamageTests(CaseBase):
         self.everywhere("failed", lambda c: [STATE], lambda rel: self.write(rel, "{ broken"))
 
     def test_state(self):
-        writes = ("finish", "closing text")
+        writes = ("finish", "finish without tuning", "closing text")
         self.everywhere("failed", lambda c: [] if c.extra or c.name in writes else [STATE],
                         lambda rel: self.write(rel, "x"))
 

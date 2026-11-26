@@ -5,6 +5,7 @@ AI tried (or the command was typed), the guard answered, and the files are as th
 """
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -236,6 +237,19 @@ def _blocked(*wanted):
     return judge
 
 
+def _in_other_words(judge):
+    """The judge, and no text of the plugin in this run says game: the project has other words."""
+    def judged(run):
+        verdict = judge(run)
+        if verdict.outcome != PASSED:
+            return verdict
+        said = [json.dumps(h) for event in ("SessionStart", "UserPromptSubmit") for h in run.hooks(event)]
+        if any(re.search(r"\bgames?\b", text, re.I) for text in said):
+            return _failed("a text of the plugin says game")
+        return Verdict(PASSED)
+    return judged
+
+
 def _status_line(run):
     line = texts.hooks_line(version.VERSION, version.plugin_hash(), False, None, None)
     if not any(h.get("systemMessage") == line for h in run.hooks("SessionStart")):
@@ -421,6 +435,12 @@ def _phase_1_open(root):
     _game(root, _handed_over(), dict(CODE, **TEST_CODE), number=1)
 
 
+def _phase_1_open_in_other_words(root):
+    _phase_1_open(root)
+    helpers.write_json(Path(root) / ".claude" / "learning" / "project.json",
+                       dict(helpers.PROJECT_JSON, words={"project": "app", "targets": "performance"}))
+
+
 def _planning(root):
     _game(root, {"status": "planning"}, {})
 
@@ -437,6 +457,13 @@ def _tune(root, log=()):
 def _wrapped_up(root):
     _tune(root, [{"kind": "measure", "target": "wins", "value": 50},
                  {"kind": "rating", "concept": "ai", "rating": "with help"}])
+
+
+def _wrapped_up_without_tuning(root):
+    """Like _wrapped_up, in a project without tuning whose plan has no targets."""
+    _game(root, _handed_over(results=_tests("passed"), log=[{"kind": "rating", "concept": "ai", "rating": "with help"}]),
+          dict(WRITTEN, **TEST_CODE), dict(full_plan(), targets=[]))
+    helpers.write_json(Path(root) / ".claude" / "learning" / "project.json", dict(helpers.PROJECT_JSON, tuning=False))
 
 
 def _closing_pending(root):
@@ -480,6 +507,8 @@ CASES = [
     Case("status inserted", _owners_turn, ["/summarize-phase 2"], _status_inserted, options=HOOKS_OFF,
          only=()),
     Case("start blocked", _phase_1_open, ["/start-phase 2"], _blocked(texts.previous_open(2)), only=()),
+    Case("start blocked, other words", _phase_1_open_in_other_words, ["/start-phase 2"],
+         _in_other_words(_blocked(texts.previous_open(2))), only=()),
     Case("build blocked before approval", _planning, ["/build-phase 2"], _blocked(texts.plan_not_approved(2)),
          only=()),
     Case("hand-over with a missing TODO", _todo_missing,
@@ -489,6 +518,7 @@ CASES = [
     Case("finish too early", _owners_turn, ["/finish-phase 2"],
          _blocked(texts.not_finished(2), texts.todos_left("Owner 1 Moth", 2)), only=()),
     Case("finish", _wrapped_up, ["/finish-phase 2"], _finished, only=(STATE, NOTES)),
+    Case("finish without tuning", _wrapped_up_without_tuning, ["/finish-phase 2"], _finished, only=(STATE, NOTES)),
     Case("closing text", _closing_pending, ["Answer with the one word Hello. Use no tool."], _closing_asked,
          only=(STATE,)),
 ]
